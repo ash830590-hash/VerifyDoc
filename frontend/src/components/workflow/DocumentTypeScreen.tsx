@@ -16,7 +16,11 @@ import {
   Calculator,
   User,
   Plane,
+  CreditCard,
+  UserCheck,
 } from 'lucide-react';
+
+import { CapturedDoc } from '@/components/scanner/WebCamScanner';
 
 export type DocStatus = 'scanned' | 'na' | 'unchecked';
 
@@ -32,6 +36,7 @@ interface DocumentTypeScreenProps {
   initialType: DocumentType;
   initialConfidence?: number;
   initialFileName?: string;
+  sessionDocs?: CapturedDoc[];
   onBack: () => void;
   onContinue: (
     primaryDoc: DocumentType,
@@ -48,6 +53,10 @@ const DOC_OPTIONS: {
   icon: React.ReactNode;
 }[] = [
   { type: 'passport', label: 'Passport', desc: 'Standard biometric passport', icon: <BookOpen className="w-4 h-4" /> },
+  { type: 'aadhaar', label: 'Aadhaar Card', desc: 'UIDAI Aadhaar national identity card', icon: <CreditCard className="w-4 h-4" /> },
+  { type: 'pan', label: 'PAN Card', desc: 'Income Tax Dept Permanent Account Number', icon: <CreditCard className="w-4 h-4" /> },
+  { type: 'voter_id', label: 'Voter ID (EPIC)', desc: 'Election Commission of India identity card', icon: <UserCheck className="w-4 h-4" /> },
+  { type: 'driving_license', label: 'Driving Licence', desc: 'State motor vehicle driving licence', icon: <FileText className="w-4 h-4" /> },
   { type: 'proof_of_address', label: 'Proof of Address', desc: 'Utility bill or official letter', icon: <Home className="w-4 h-4" /> },
   { type: 'bank_statement', label: 'Bank Statement', desc: 'Recent financial statement', icon: <Building className="w-4 h-4" /> },
   { type: 'employment_letter', label: 'Employment Letter', desc: 'Official employer verification', icon: <Briefcase className="w-4 h-4" /> },
@@ -61,19 +70,23 @@ export default function DocumentTypeScreen({
   initialType,
   initialConfidence = 98,
   initialFileName,
+  sessionDocs = [],
   onBack,
   onContinue,
 }: DocumentTypeScreenProps) {
 
-  const [entries, setEntries] = useState<DocChecklistEntry[]>(
-    DOC_OPTIONS.map((opt) => ({
-      docType: opt.type,
-      status: opt.type === initialType ? 'scanned' : 'unchecked',
-      fileName: opt.type === initialType
-        ? (initialFileName || `${opt.type}_001`)
-        : `${opt.type}_001`,
-    }))
-  );
+  const [entries, setEntries] = useState<DocChecklistEntry[]>(() => {
+    return DOC_OPTIONS.map((opt) => {
+      const docInSession = sessionDocs.find(d => d.docType === opt.type);
+      const isScanned = !!docInSession || opt.type === initialType;
+      const fName = docInSession?.fileName || (opt.type === initialType ? (initialFileName || `${opt.type}_001`) : `${opt.type}_001`);
+      return {
+        docType: opt.type,
+        status: isScanned ? 'scanned' : 'unchecked',
+        fileName: fName,
+      };
+    });
+  });
 
   const [editingType, setEditingType] = useState<DocumentType | null>(null);
 
@@ -100,7 +113,8 @@ export default function DocumentTypeScreen({
   };
 
   const handleContinue = () => {
-    const primary = entries.find(e => e.status === 'scanned');
+    const primary = entries.find(e => e.docType === initialType && e.status === 'scanned')
+      || entries.find(e => e.status === 'scanned');
     if (!primary) return;
     const unavailable: UnavailableDocFlags = entries.reduce((acc, curr) => {
       acc[curr.docType] = (curr.status === 'na');

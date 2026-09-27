@@ -43,25 +43,25 @@ class PassportExtractor(BaseExtractor):
             if not fields.get("passport_number") or not re.match(r'^[A-Z]\d{7}$', str(fields.get("passport_number"))):
                 fields["passport_number"] = valid_viz
 
-        # Surname (Nom)
+        # Surname (Nom / उपनाम) - supports same-line and next-line
         if not fields.get("surname") or fields.get("surname") == "":
-            s_match = re.search(r'(?:Surname|Nom|1\.\s*उपनाम)[\s.:]*([A-Za-z\s\.\'-]{2,35})', raw_text, re.IGNORECASE)
+            s_match = re.search(r'(?:Surname|Nom|1\.\s*उपनाम)[\s.:\n]+([A-Za-z\s\.\'-]{2,35})', raw_text, re.IGNORECASE)
             if s_match:
                 fields["surname"] = s_match.group(1).strip().split('\n')[0].strip()
 
-        # Given Name
+        # Given Name (Prénoms / दिया गया नाम) - supports same-line and next-line
         if not fields.get("given_name") or fields.get("given_name") == "":
-            g_match = re.search(r'(?:Given\s*Name[s]?|Pr[ée]nom|2\.\s*दिया\s*गया\s*नाम)[\s.:]*([A-Za-z\s\.\'-]{2,35})', raw_text, re.IGNORECASE)
+            g_match = re.search(r'(?:Given\s*Name[s]?|Pr[ée]nom|2\.\s*दिया\s*गया\s*नाम)[\s.:\n]+([A-Za-z\s\.\'-]{2,35})', raw_text, re.IGNORECASE)
             if g_match:
                 fields["given_name"] = g_match.group(1).strip().split('\n')[0].strip()
 
-        # Full Name
+        # Full Name (Supports single-name passports and combined names)
         s = fields.get("surname", "") or ""
         g = fields.get("given_name", "") or ""
-        if s and g:
+        if s or g:
             fields["name"] = f"{s} {g}".strip()
         elif not fields.get("name"):
-            n_match = re.search(r'(?:Name|Holder)[\s.:]*([A-Za-z\s\.\'-]{2,35})', raw_text, re.IGNORECASE)
+            n_match = re.search(r'(?:Name|Holder)[\s.:\n]+([A-Za-z\s\.\'-]{2,35})', raw_text, re.IGNORECASE)
             fields["name"] = n_match.group(1).strip().split('\n')[0].strip() if n_match else None
 
         # Date of Birth (DOB)

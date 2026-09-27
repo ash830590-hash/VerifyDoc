@@ -6,10 +6,20 @@ if (typeof axios !== 'undefined') {
   axios.defaults.headers.common['X-Pinggy-No-Screen'] = '1';
 }
 
-// Backend URL (relative in browser to route through Next.js rewrite proxy, direct on server)
-const API_BASE_URL = typeof window !== 'undefined' 
-  ? '' 
-  : (process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000');
+// Backend URL (dynamic helper supporting custom browser setting, NEXT_PUBLIC_API_URL, or relative rewrite proxy)
+export function getApiBaseUrl(): string {
+  if (typeof window !== 'undefined') {
+    const saved = localStorage.getItem('custom_api_url');
+    if (saved && saved.trim()) {
+      return saved.trim().replace(/\/$/, '');
+    }
+    if (process.env.NEXT_PUBLIC_API_URL) {
+      return process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, '');
+    }
+    return '';
+  }
+  return (process.env.NEXT_PUBLIC_API_URL || process.env.API_URL || 'http://127.0.0.1:8000').replace(/\/$/, '');
+}
 
 export interface TamperingResult {
   tampered: boolean;
@@ -128,6 +138,28 @@ function parseOcrText(rawText: string, docType: DocumentType): Record<string, Ex
         editable: true,
       };
     }
+  } else if (docType === 'pan') {
+    const panMatch = rawText.match(/\b([A-Z]{5}[0-9]{4}[A-Z])\b/);
+    if (panMatch) {
+      fields.panNumber = {
+        key: 'panNumber',
+        label: 'PAN Number',
+        value: panMatch[1].toUpperCase(),
+        confidence: 98,
+        editable: true,
+      };
+    }
+  } else if (docType === 'voter_id') {
+    const epicMatch = rawText.match(/\b([A-Z]{3}[0-9]{7})\b/);
+    if (epicMatch) {
+      fields.epicNumber = {
+        key: 'epicNumber',
+        label: 'EPIC / Voter ID Number',
+        value: epicMatch[1].toUpperCase(),
+        confidence: 98,
+        editable: true,
+      };
+    }
   } else if (docType === 'visa') {
     const visaMatch = rawText.match(/\b(V[0-9]{7,9})\b/i);
     if (visaMatch) {
@@ -143,9 +175,9 @@ function parseOcrText(rawText: string, docType: DocumentType): Record<string, Ex
 
   // 4. Look for Name (first non-header alphabetic line)
   const candidateNames = lines.filter((l) => {
-    const isHeader = /GOVERNMENT|INDIA|UNION|REPUBLIC|PASSPORT|DRIVING|LICENCE|ELECTION|COMMISSION|AADHAAR|UNIQUE|AUTHORITY/i.test(l);
-    const hasLetters = /^[A-Za-z\s.]{3,35}$/.test(l);
-    return !isHeader && hasLetters;
+    const isHeader = /GOVERNMENT|INDIA|UNION|REPUBLIC|PASSPORT|DRIVING|LICENCE|ELECTION|COMMISSION|AADHAAR|UNIQUE|AUTHORITY|INCOME|TAX|PERMANENT|ACCOUNT/i.test(l);
+    const clean = l.replace(/[^A-Za-z\s]/g, '').trim();
+    return !isHeader && clean.length >= 3 && clean.length <= 40 && !/\d/.test(l);
   });
 
   if (candidateNames.length > 0) {
@@ -219,7 +251,7 @@ export async function ocr(
     formData.append('document_type', docType);
     formData.append('engine_pref', enginePref);
 
-    const response = await axios.post(`${API_BASE_URL}/api/ocr`, formData, {
+    const response = await axios.post(`${getApiBaseUrl()}/api/ocr`, formData, {
       timeout: 120000, // 120s timeout to allow deep learning OCR models to download & execute
       headers: { 
         'Content-Type': 'multipart/form-data',
@@ -385,6 +417,82 @@ export async function ocr(
         editable: true,
       },
     };
+  } else if (docType === 'pan') {
+    baseFields = {
+      panNumber: {
+        key: 'panNumber',
+        label: 'PAN Number',
+        value: 'ABCPS1234F',
+        confidence: 99,
+        editable: true,
+      },
+      name: {
+        key: 'name',
+        label: 'Name',
+        value: 'Rahul Sharma',
+        confidence: 99,
+        editable: true,
+      },
+      fatherName: {
+        key: 'fatherName',
+        label: "Father's Name",
+        value: 'Suresh Sharma',
+        confidence: 97,
+        editable: true,
+      },
+      dateOfBirth: {
+        key: 'dateOfBirth',
+        label: 'Date of Birth',
+        value: '14/03/2003',
+        confidence: 98,
+        editable: true,
+      },
+    };
+  } else if (docType === 'voter_id') {
+    baseFields = {
+      epicNumber: {
+        key: 'epicNumber',
+        label: 'EPIC / Voter ID Number',
+        value: 'ABC1234567',
+        confidence: 99,
+        editable: true,
+      },
+      name: {
+        key: 'name',
+        label: 'Name',
+        value: 'Rahul Sharma',
+        confidence: 99,
+        editable: true,
+      },
+      relationName: {
+        key: 'relationName',
+        label: "Father / Husband's Name",
+        value: 'Suresh Sharma',
+        confidence: 97,
+        editable: true,
+      },
+      gender: {
+        key: 'gender',
+        label: 'Gender',
+        value: 'Male',
+        confidence: 98,
+        editable: true,
+      },
+      dateOfBirth: {
+        key: 'dateOfBirth',
+        label: 'Date of Birth',
+        value: '14/03/2003',
+        confidence: 96,
+        editable: true,
+      },
+      address: {
+        key: 'address',
+        label: 'Address',
+        value: 'Pocket B, Mayur Vihar Phase 1, New Delhi - 110091',
+        confidence: 95,
+        editable: true,
+      },
+    };
   } else if (isSuspicious) {
     baseFields = {
       name: {
@@ -449,7 +557,7 @@ export async function validateDocument(
   isSuspicious: boolean = false
 ): Promise<DocumentValidationResult> {
   try {
-    const response = await axios.post(`${API_BASE_URL}/api/validate-document`, {
+    const response = await axios.post(`${getApiBaseUrl()}/api/validate-document`, {
       docType,
       fields,
     }, { timeout: 1500 });
@@ -484,7 +592,7 @@ export async function detectTampering(
   try {
     const formData = new FormData();
     if (image instanceof Blob) formData.append('file', image);
-    const response = await axios.post(`${API_BASE_URL}/api/detect-tampering`, formData, { timeout: 1500 });
+    const response = await axios.post(`${getApiBaseUrl()}/api/detect-tampering`, formData, { timeout: 1500 });
     return response.data;
   } catch {
     if (isSuspicious) {
@@ -515,7 +623,7 @@ export async function verifyFace(
   try {
     const formData = new FormData();
     if (image instanceof Blob) formData.append('file', image);
-    const response = await axios.post(`${API_BASE_URL}/api/verify-face`, formData, { timeout: 1500 });
+    const response = await axios.post(`${getApiBaseUrl()}/api/verify-face`, formData, { timeout: 1500 });
     return response.data;
   } catch {
     if (isSuspicious) {

@@ -75,6 +75,40 @@ class DocumentSideRules:
                 "extract_mrz": True,
                 "target_fields": ["visa_number", "passport_number", "name", "visa_type", "entries", "mrz_raw"]
             }
+        },
+        "pan": {
+            "front": {
+                "extract_photo": True,
+                "extract_qr": True,
+                "extract_mrz": False,
+                "target_fields": ["pan_number", "name", "father_name", "dob"]
+            },
+            "full_page": {
+                "extract_photo": True,
+                "extract_qr": True,
+                "extract_mrz": False,
+                "target_fields": ["pan_number", "name", "father_name", "dob"]
+            }
+        },
+        "voter_id": {
+            "front": {
+                "extract_photo": True,
+                "extract_qr": False,
+                "extract_mrz": False,
+                "target_fields": ["epic_number", "name", "relation_name", "gender", "dob", "age"]
+            },
+            "back": {
+                "extract_photo": False,
+                "extract_qr": True,
+                "extract_mrz": False,
+                "target_fields": ["address", "epic_number"]
+            },
+            "full_page": {
+                "extract_photo": True,
+                "extract_qr": True,
+                "extract_mrz": False,
+                "target_fields": ["epic_number", "name", "relation_name", "gender", "dob", "address"]
+            }
         }
     }
 

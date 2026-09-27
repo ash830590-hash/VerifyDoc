@@ -27,7 +27,19 @@ import { loadOpenCV } from '@/utils/opencvScanner';
 import { saveCapturedImageToDisk } from '@/services/verificationService';
 import { DocumentType } from '@/types';
 
-export type DocPreset = 'passport' | 'proof_of_address' | 'bank_statement' | 'employment_letter' | 'tax_documents' | 'birth_certificate' | 'visa' | 'residence_permit';
+export type DocPreset =
+  | 'passport'
+  | 'aadhaar'
+  | 'pan'
+  | 'voter_id'
+  | 'driving_license'
+  | 'proof_of_address'
+  | 'bank_statement'
+  | 'employment_letter'
+  | 'tax_documents'
+  | 'birth_certificate'
+  | 'visa'
+  | 'residence_permit';
 export type DocSide = 'front' | 'back' | 'single';
 
 export interface CapturedDoc {
@@ -72,6 +84,10 @@ const PRESET_META: Record<
   }
 > = {
   passport: { label: 'Passport', docType: 'passport', sides: ['single'], sampleImages: { single: '/samples/passport_front.svg' } },
+  aadhaar: { label: 'Aadhaar Card', docType: 'aadhaar', sides: ['front', 'back'], sampleImages: { front: '/samples/aadhaar_front.svg', back: '/samples/aadhaar_back.svg' } },
+  pan: { label: 'PAN Card', docType: 'pan', sides: ['single'], sampleImages: { single: '/samples/driving_license_front.svg' } },
+  voter_id: { label: 'Voter ID (EPIC)', docType: 'voter_id', sides: ['front', 'back'], sampleImages: { front: '/samples/driving_license_front.svg', back: '/samples/driving_license_back.svg' } },
+  driving_license: { label: 'Driving Licence', docType: 'driving_license', sides: ['front', 'back'], sampleImages: { front: '/samples/driving_license_front.svg', back: '/samples/driving_license_back.svg' } },
   proof_of_address: { label: 'Proof of Address', docType: 'proof_of_address', sides: ['front'], sampleImages: { front: '/samples/driving_license_front.svg' } },
   bank_statement: { label: 'Bank Statement', docType: 'bank_statement', sides: ['front', 'back'], sampleImages: { front: '/samples/driving_license_front.svg', back: '/samples/driving_license_back.svg' } },
   employment_letter: { label: 'Employment Letter', docType: 'employment_letter', sides: ['front'], sampleImages: { front: '/samples/visa_front.svg' } },

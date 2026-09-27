@@ -12,6 +12,7 @@ import {
   warpPerspectiveDocument,
   orderPoints,
 } from './opencvScanner';
+import { getApiBaseUrl } from '@/services/verificationService';
 
 export type { Point, ScanFilter };
 
@@ -51,11 +52,7 @@ export async function detectCornersWithFallback(
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 600);
 
-    const API_BASE_URL = typeof window !== 'undefined' 
-      ? '' 
-      : 'http://127.0.0.1:8000';
-
-    const res = await fetch(`${API_BASE_URL}/detect-corners`, {
+    const res = await fetch(`${getApiBaseUrl()}/detect-corners`, {
       method: 'POST',
       headers: { 'X-Pinggy-No-Screen': '1' },
       body: formData,
@@ -128,11 +125,7 @@ export async function processScanWithFallback(
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 1200);
 
-    const API_BASE_URL = typeof window !== 'undefined' 
-      ? '' 
-      : 'http://127.0.0.1:8000';
-
-    const res = await fetch(`${API_BASE_URL}/scan-pro`, {
+    const res = await fetch(`${getApiBaseUrl()}/scan-pro`, {
       method: 'POST',
       headers: { 'X-Pinggy-No-Screen': '1' },
       body: formData,

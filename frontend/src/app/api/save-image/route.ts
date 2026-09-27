@@ -19,8 +19,19 @@ export async function POST(req: NextRequest) {
         imageDir = parentImageDir;
       }
     }
-    if (!fs.existsSync(imageDir)) {
-      fs.mkdirSync(imageDir, { recursive: true });
+    try {
+      if (!fs.existsSync(imageDir)) {
+        fs.mkdirSync(imageDir, { recursive: true });
+      }
+    } catch {
+      imageDir = path.resolve('/tmp');
+      try {
+        if (!fs.existsSync(imageDir)) {
+          fs.mkdirSync(imageDir, { recursive: true });
+        }
+      } catch {
+        // Fallback silently if /tmp is not available
+      }
     }
 
     // Construct clean file name
@@ -30,38 +41,42 @@ export async function POST(req: NextRequest) {
       ? `${customName.replace(/[^a-z0-9_]/g, '_')}_${sanitizedSide}`
       : `${sanitizedDocType}_${sanitizedSide}`;
 
-    let filePath = '';
-    let fileUrl = '';
+    let filePath = `image/${baseName}.jpg`;
+    let fileUrl = image;
 
-    if (image.startsWith('data:image/')) {
-      // Base64 data URL from Webcam / Canvas
-      const matches = image.match(/^data:image\/([a-zA-Z0-9+]+);base64,(.+)$/);
-      if (matches) {
-        const ext = matches[1] === 'jpeg' ? 'jpg' : matches[1];
-        const buffer = Buffer.from(matches[2], 'base64');
-        const filename = `${baseName}.${ext}`;
+    try {
+      if (image.startsWith('data:image/')) {
+        // Base64 data URL from Webcam / Canvas
+        const matches = image.match(/^data:image\/([a-zA-Z0-9+]+);base64,(.+)$/);
+        if (matches) {
+          const ext = matches[1] === 'jpeg' ? 'jpg' : matches[1];
+          const buffer = Buffer.from(matches[2], 'base64');
+          const filename = `${baseName}.${ext}`;
+          filePath = path.join(imageDir, filename);
+          fs.writeFileSync(filePath, buffer);
+          fileUrl = `/image/${filename}`;
+        }
+      } else if (image.startsWith('/samples/')) {
+        // Preset sample SVG
+        const sampleName = path.basename(image);
+        const ext = path.extname(sampleName) || '.svg';
+        const filename = `${baseName}${ext}`;
         filePath = path.join(imageDir, filename);
-        fs.writeFileSync(filePath, buffer);
+
+        const sourcePath = path.join(process.cwd(), 'public', 'samples', sampleName);
+        if (fs.existsSync(sourcePath)) {
+          fs.copyFileSync(sourcePath, filePath);
+        }
+        fileUrl = `/image/${filename}`;
+      } else {
+        // Fallback text or binary
+        const filename = `${baseName}.jpg`;
+        filePath = path.join(imageDir, filename);
+        fs.writeFileSync(filePath, Buffer.from(image, 'utf-8'));
         fileUrl = `/image/${filename}`;
       }
-    } else if (image.startsWith('/samples/')) {
-      // Preset sample SVG
-      const sampleName = path.basename(image);
-      const ext = path.extname(sampleName) || '.svg';
-      const filename = `${baseName}${ext}`;
-      filePath = path.join(imageDir, filename);
-
-      const sourcePath = path.join(process.cwd(), 'public', 'samples', sampleName);
-      if (fs.existsSync(sourcePath)) {
-        fs.copyFileSync(sourcePath, filePath);
-      }
-      fileUrl = `/image/${filename}`;
-    } else {
-      // Fallback text or binary
-      const filename = `${baseName}.jpg`;
-      filePath = path.join(imageDir, filename);
-      fs.writeFileSync(filePath, Buffer.from(image, 'utf-8'));
-      fileUrl = `/image/${filename}`;
+    } catch (writeErr) {
+      console.warn('Filesystem write note (serverless environment):', writeErr);
     }
 
     return NextResponse.json({

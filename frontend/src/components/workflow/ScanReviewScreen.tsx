@@ -35,6 +35,10 @@ interface ScanReviewScreenProps {
 
 const DOC_META: Record<string, { label: string; icon: React.ReactNode }> = {
   passport: { label: 'Passport', icon: <BookOpen className="w-3.5 h-3.5" /> },
+  aadhaar: { label: 'Aadhaar Card', icon: <User className="w-3.5 h-3.5" /> },
+  pan: { label: 'PAN Card', icon: <FileText className="w-3.5 h-3.5" /> },
+  voter_id: { label: 'Voter ID', icon: <User className="w-3.5 h-3.5" /> },
+  driving_license: { label: 'Driving Licence', icon: <FileText className="w-3.5 h-3.5" /> },
   proof_of_address: { label: 'Proof of Address', icon: <Home className="w-3.5 h-3.5" /> },
   bank_statement: { label: 'Bank Statement', icon: <Building className="w-3.5 h-3.5" /> },
   employment_letter: { label: 'Employment Letter', icon: <Briefcase className="w-3.5 h-3.5" /> },

@@ -16,7 +16,9 @@ import {
   Calculator,
   User,
   Plane,
-  ScanLine
+  ScanLine,
+  CreditCard,
+  UserCheck,
 } from 'lucide-react';
 import { DocChecklistEntry } from '@/components/workflow/DocumentTypeScreen';
 import { CapturedDoc } from '@/components/scanner/WebCamScanner';
@@ -27,6 +29,10 @@ const DOC_META: Record<string, {
   icon: React.ReactNode;
 }> = {
   passport: { label: 'Passport', shortLabel: 'Passport', icon: <BookOpen className="w-3.5 h-3.5" /> },
+  aadhaar: { label: 'Aadhaar Card', shortLabel: 'Aadhaar', icon: <CreditCard className="w-3.5 h-3.5" /> },
+  pan: { label: 'PAN Card', shortLabel: 'PAN Card', icon: <CreditCard className="w-3.5 h-3.5" /> },
+  voter_id: { label: 'Voter ID (EPIC)', shortLabel: 'Voter ID', icon: <UserCheck className="w-3.5 h-3.5" /> },
+  driving_license: { label: 'Driving Licence', shortLabel: 'Licence', icon: <FileText className="w-3.5 h-3.5" /> },
   proof_of_address: { label: 'Proof of Address', shortLabel: 'Address', icon: <Home className="w-3.5 h-3.5" /> },
   bank_statement: { label: 'Bank Statement', shortLabel: 'Bank', icon: <Building className="w-3.5 h-3.5" /> },
   employment_letter: { label: 'Employment Letter', shortLabel: 'Employment', icon: <Briefcase className="w-3.5 h-3.5" /> },
@@ -35,6 +41,12 @@ const DOC_META: Record<string, {
   visa: { label: 'Visa', shortLabel: 'Visa', icon: <Plane className="w-3.5 h-3.5" /> },
   residence_permit: { label: 'Residence Permit', shortLabel: 'Residence', icon: <FileText className="w-3.5 h-3.5" /> },
 };
+
+function getDocMeta(type: string) {
+  if (DOC_META[type]) return DOC_META[type];
+  const short = type.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+  return { label: short, shortLabel: short, icon: <FileText className="w-3.5 h-3.5" /> };
+}
 
 interface ExtractionScreenProps {
   documentType: DocumentType;
@@ -145,7 +157,7 @@ export default function ExtractionScreen({
     : [{ docType: documentType, status: 'scanned' as const, fileName }];
 
   const [activeDocType, setActiveDocType] = useState<DocumentType>(
-    tabDocs[0]?.docType || documentType
+    tabDocs.some(d => d.docType === documentType) ? documentType : (tabDocs[0]?.docType || documentType)
   );
 
   const [fieldOverrides, setFieldOverrides] = useState<Record<string, Record<string, ExtractedField>>>({});
@@ -164,7 +176,7 @@ export default function ExtractionScreen({
     onProceedToVerification(primaryFields);
   };
 
-  const activeMeta    = DOC_META[activeDocType] ?? DOC_META.passport;
+  const activeMeta    = getDocMeta(activeDocType);
   const activeEntry   = tabDocs.find(e => e.docType === activeDocType);
   const activeFields  = getFields(activeDocType);
   const fieldCount    = Object.keys(activeFields).length;
@@ -194,7 +206,7 @@ export default function ExtractionScreen({
       {tabDocs.length > 1 && (
         <div className="flex-shrink-0 px-4 py-2.5 bg-white border-b border-slate-200 flex gap-2 overflow-x-auto scrollbar-none">
           {tabDocs.map((entry) => {
-            const m = DOC_META[entry.docType] ?? DOC_META.passport;
+            const m = getDocMeta(entry.docType);
             const isActive = activeDocType === entry.docType;
             const fCount = Object.keys(getFields(entry.docType)).length;
             return (
@@ -217,7 +229,7 @@ export default function ExtractionScreen({
           })}
 
           {naEntries.map((entry) => {
-            const m = DOC_META[entry.docType] ?? DOC_META.passport;
+            const m = getDocMeta(entry.docType);
             return (
               <div key={entry.docType}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap flex-shrink-0 bg-slate-50 text-slate-400 border border-slate-200 opacity-70">

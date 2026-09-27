@@ -1,7 +1,7 @@
 "use client";
 import React from 'react';
 import { HistoryItem } from '@/types';
-import { BookOpen, FileText, ChevronRight, Clock, ShieldCheck, ShieldAlert, Home, Building, Briefcase, Calculator, User, Plane } from 'lucide-react';
+import { BookOpen, FileText, ChevronRight, Clock, ShieldCheck, ShieldAlert, Home, Building, Briefcase, Calculator, User, Plane, CreditCard, UserCheck } from 'lucide-react';
 
 interface HistoryViewProps {
   history: HistoryItem[];
@@ -17,6 +17,10 @@ export default function HistoryView({
   const getDocIcon = (type: string) => {
     switch (type) {
       case 'passport': return <BookOpen className="w-5 h-5 text-blue-700" />;
+      case 'aadhaar': return <CreditCard className="w-5 h-5 text-blue-700" />;
+      case 'pan': return <CreditCard className="w-5 h-5 text-blue-700" />;
+      case 'voter_id': return <UserCheck className="w-5 h-5 text-blue-700" />;
+      case 'driving_license': return <FileText className="w-5 h-5 text-blue-700" />;
       case 'proof_of_address': return <Home className="w-5 h-5 text-blue-700" />;
       case 'bank_statement': return <Building className="w-5 h-5 text-blue-700" />;
       case 'employment_letter': return <Briefcase className="w-5 h-5 text-blue-700" />;
@@ -29,6 +33,10 @@ export default function HistoryView({
   };
 
   const getDocName = (type: string) => {
+    if (type === 'aadhaar') return 'Aadhaar Card';
+    if (type === 'pan') return 'PAN Card';
+    if (type === 'voter_id') return 'Voter ID (EPIC)';
+    if (type === 'driving_license') return 'Driving Licence';
     return type.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
   };
 

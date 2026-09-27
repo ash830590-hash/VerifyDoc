@@ -51,12 +51,34 @@ class DocumentValidator:
             else:
                 status["document_number"] = "fail"
 
-        elif doc_type in ("driving_licence", "dl"):
+        elif doc_type in ("driving_licence", "dl", "driving_license"):
             dl_num = extracted_fields.get("dl_number")
             if dl_num and (len(str(dl_num)) >= 10):
                 status["dl_number"] = "pass"
             else:
                 status["dl_number"] = "fail"
+
+            if extracted_fields.get("name"):
+                status["name"] = "pass"
+
+        elif doc_type in ("pan", "pan_card"):
+            pan_num = str(extracted_fields.get("pan_number", "")).strip().upper()
+            if pan_num and re.match(r'^[A-Z]{5}[0-9]{4}[A-Z]$', pan_num):
+                status["pan_number"] = "pass"
+            else:
+                status["pan_number"] = "fail"
+
+            if extracted_fields.get("name"):
+                status["name"] = "pass"
+            if extracted_fields.get("dob"):
+                status["dob"] = "pass"
+
+        elif doc_type in ("voter_id", "voter", "epic"):
+            epic_num = str(extracted_fields.get("epic_number") or extracted_fields.get("voter_id") or "").strip().upper()
+            if epic_num and (re.match(r'^[A-Z]{3}[0-9]{7}$', epic_num) or len(epic_num) >= 8):
+                status["epic_number"] = "pass"
+            else:
+                status["epic_number"] = "fail"
 
             if extracted_fields.get("name"):
                 status["name"] = "pass"

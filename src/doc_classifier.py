@@ -12,7 +12,9 @@ class DocumentClassifier:
         "passport": "Indian Passport",
         "visa": "Indian Visa",
         "driving_licence": "Driving Licence",
-        "dl": "Driving Licence"
+        "dl": "Driving Licence",
+        "pan": "PAN Card",
+        "voter_id": "Voter ID Card"
     }
 
     @classmethod
@@ -26,7 +28,9 @@ class DocumentClassifier:
             "aadhaar": 0,
             "passport": 0,
             "visa": 0,
-            "driving_licence": 0
+            "driving_licence": 0,
+            "pan": 0,
+            "voter_id": 0
         }
 
         # 1. Aadhaar Indicators
@@ -86,6 +90,33 @@ class DocumentClassifier:
                 scores["driving_licence"] += 25
         if re.search(r'\b[A-Z]{2}\d{13,14}\b', text_upper) or "DL NO" in text_upper or "DRIVING" in text_upper:
             scores["driving_licence"] += 60
+
+        # 5. PAN Card Indicators
+        pan_keywords = [
+            "INCOME TAX DEPARTMENT", "PERMANENT ACCOUNT NUMBER", "GOVT. OF INDIA",
+            "INCOMETAX", "PAN CARD", "FATHER'S NAME"
+        ]
+        for kw in pan_keywords:
+            if kw in text_upper:
+                scores["pan"] += 25
+        if re.search(r'\b[A-Z]{5}[0-9]{4}[A-Z]\b', text_upper):
+            scores["pan"] += 70
+        if "PAN" in text_upper:
+            scores["pan"] += 30
+
+        # 6. Voter ID (EPIC) Indicators
+        voter_keywords = [
+            "ELECTION COMMISSION OF INDIA", "ELECTOR PHOTO IDENTITY CARD",
+            "BHARAT NIRVACHAN AAYOG", "MATDATA PEHCHAN PATRA", "ELECTOR'S NAME",
+            "EPIC NO", "ELECTION"
+        ]
+        for kw in voter_keywords:
+            if kw in text_upper:
+                scores["voter_id"] += 25
+        if re.search(r'\b[A-Z]{3}[0-9]{7}\b', text_upper):
+            scores["voter_id"] += 70
+        if "VOTER" in text_upper or "EPIC" in text_upper:
+            scores["voter_id"] += 30
 
         # Determine highest scoring document type
         best_doc_type = max(scores, key=scores.get)

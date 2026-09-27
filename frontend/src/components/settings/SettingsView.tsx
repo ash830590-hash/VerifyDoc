@@ -9,12 +9,26 @@ interface SettingsViewProps {
 }
 
 export default function SettingsView({ ocrEngine, setOcrEngine, onBackToScan }: SettingsViewProps) {
-  const [apiUrl, setApiUrl] = useState<string>('http://localhost:8000');
+  const [apiUrl, setApiUrl] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('custom_api_url');
+      if (saved) return saved;
+    }
+    return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+  });
   const [sensitivity, setSensitivity] = useState<'standard' | 'strict'>('standard');
   const [autoCrop, setAutoCrop] = useState<boolean>(true);
   const [testSaved, setTestSaved] = useState<boolean>(false);
 
   const handleSave = () => {
+    if (typeof window !== 'undefined') {
+      const trimmed = apiUrl.trim();
+      if (trimmed) {
+        localStorage.setItem('custom_api_url', trimmed);
+      } else {
+        localStorage.removeItem('custom_api_url');
+      }
+    }
     setTestSaved(true);
     setTimeout(() => setTestSaved(false), 2000);
   };

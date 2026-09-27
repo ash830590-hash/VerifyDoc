@@ -3,11 +3,13 @@ from src.extractors.aadhaar import AadhaarExtractor
 from src.extractors.passport import PassportExtractor
 from src.extractors.visa import VisaExtractor
 from src.extractors.dl import DLExtractor
+from src.extractors.pan import PANExtractor
+from src.extractors.voter_id import VoterIDExtractor
 
 class FieldExtractor:
     """
     Modular Field Extractor orchestrating per-document extractors:
-    Aadhaar, Passport, Visa, and Driving Licence.
+    Aadhaar, Passport, Visa, Driving Licence, PAN Card, and Voter ID.
     """
 
     EXTRACTORS = {
@@ -15,7 +17,13 @@ class FieldExtractor:
         "passport": PassportExtractor(),
         "visa": VisaExtractor(),
         "driving_licence": DLExtractor(),
-        "dl": DLExtractor()
+        "dl": DLExtractor(),
+        "driving_license": DLExtractor(),
+        "pan": PANExtractor(),
+        "pan_card": PANExtractor(),
+        "voter_id": VoterIDExtractor(),
+        "voter": VoterIDExtractor(),
+        "epic": VoterIDExtractor(),
     }
 
     @classmethod

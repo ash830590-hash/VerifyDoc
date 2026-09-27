@@ -1,4 +1,16 @@
-export type DocumentType = 'passport' | 'proof_of_address' | 'bank_statement' | 'employment_letter' | 'tax_documents' | 'birth_certificate' | 'visa' | 'residence_permit';
+export type DocumentType =
+  | 'passport'
+  | 'aadhaar'
+  | 'pan'
+  | 'voter_id'
+  | 'driving_license'
+  | 'proof_of_address'
+  | 'bank_statement'
+  | 'employment_letter'
+  | 'tax_documents'
+  | 'birth_certificate'
+  | 'visa'
+  | 'residence_permit';
 
 export type DocumentSide = 'front' | 'back';
 

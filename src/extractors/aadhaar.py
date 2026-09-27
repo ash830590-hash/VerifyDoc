@@ -139,42 +139,45 @@ class AadhaarExtractor(BaseExtractor):
         dob_gender_idx = -1
         for idx, line in enumerate(lines):
             line_up = line.upper()
-            if any(k in line_up for k in ["DOB", "DATE OF BIRTH", "BIRTH", "YOB", "YEAR OF BIRTH"]) or re.search(r'\b\d{2}[-/\.]\d{2}[-/\.]\d{4}\b', line) or any(g in line_up for g in ["MALE", "FEMALE", "TRANSGENDER"]):
+            if any(k in line_up for k in ["DOB", "D.O.B", "DATE OF BIRTH", "BIRTH", "YOB", "YEAR OF BIRTH", "YEAR", "DO8", "D0B", "जन्म", "तारीख"]) or re.search(r'\b\d{2}[-/\.]\d{2}[-/\.]\d{4}\b', line) or any(g in line_up for g in ["MALE", "FEMALE", "TRANSGENDER", "पुरुष", "महिला"]):
                 dob_gender_idx = idx
                 break
 
         # Check candidate lines immediately preceding the DOB/Gender anchor
         if dob_gender_idx > 0:
-            for offset in range(1, min(4, dob_gender_idx + 1)):
+            for offset in range(1, min(5, dob_gender_idx + 1)):
                 cand_line = lines[dob_gender_idx - offset]
+                # Strip prefix like "Name:", "To:"
+                cand_line = re.sub(r'^(?:Name|To|Holder|S/O|D/O|W/O|C/O)[\s.:]+', '', cand_line, flags=re.IGNORECASE)
                 ascii_clean = re.sub(r'[^A-Za-z\s\.\'-]', ' ', cand_line)
                 ascii_clean = re.sub(r'\s+', ' ', ascii_clean).strip()
                 
-                if len(ascii_clean) >= 3 and len(ascii_clean) <= 35:
+                if len(ascii_clean) >= 3 and len(ascii_clean) <= 40:
                     up_cand = ascii_clean.upper()
                     if not any(k in up_cand for k in forbidden_keywords):
-                        words = ascii_clean.split()
-                        if 1 <= len(words) <= 4:
-                            return ascii_clean
+                        words = [w for w in ascii_clean.split() if len(w) >= 2]
+                        if 1 <= len(words) <= 5:
+                            return " ".join(words)
 
         # 3. Fallback: Search all lines between Govt header and DOB line
         govt_idx = 0
         for idx, line in enumerate(lines):
-            if any(k in line.upper() for k in ["GOVERNMENT OF INDIA", "BHARAT SARKAR", "UNIQUE IDENTIFICATION"]):
+            if any(k in line.upper() for k in ["GOVERNMENT OF INDIA", "BHARAT SARKAR", "UNIQUE IDENTIFICATION", "AUTHORITY"]):
                 govt_idx = idx
                 break
 
         end_idx = dob_gender_idx if dob_gender_idx > 0 else len(lines)
         for idx in range(govt_idx, end_idx):
             cand_line = lines[idx]
+            cand_line = re.sub(r'^(?:Name|To|Holder|S/O|D/O|W/O|C/O)[\s.:]+', '', cand_line, flags=re.IGNORECASE)
             ascii_clean = re.sub(r'[^A-Za-z\s\.\'-]', ' ', cand_line)
             ascii_clean = re.sub(r'\s+', ' ', ascii_clean).strip()
-            if len(ascii_clean) >= 3 and len(ascii_clean) <= 35:
+            if len(ascii_clean) >= 3 and len(ascii_clean) <= 40:
                 up_cand = ascii_clean.upper()
                 if not any(k in up_cand for k in forbidden_keywords):
-                    words = ascii_clean.split()
-                    if 1 <= len(words) <= 4:
-                        return ascii_clean
+                    words = [w for w in ascii_clean.split() if len(w) >= 2]
+                    if 1 <= len(words) <= 5:
+                        return " ".join(words)
 
         # 4. Text Blocks spatial fallback
         if text_blocks:

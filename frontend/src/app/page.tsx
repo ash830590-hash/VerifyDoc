@@ -6,6 +6,7 @@ import ScanReviewScreen from '@/components/workflow/ScanReviewScreen';
 import DocumentTypeScreen, { UnavailableDocFlags, DocChecklistEntry } from '@/components/workflow/DocumentTypeScreen';
 import ExtractionScreen from '@/components/workflow/ExtractionScreen';
 import VerificationScreen from '@/components/workflow/VerificationScreen';
+import AadhaarEkycScreen from '@/components/workflow/AadhaarEkycScreen';
 import FinalResultScreen from '@/components/workflow/FinalResultScreen';
 import HistoryView from '@/components/history/HistoryView';
 import SettingsView from '@/components/settings/SettingsView';
@@ -16,6 +17,7 @@ import {
   detectTampering,
   verifyFace,
   calculateRisk,
+  getApiBaseUrl,
 } from '@/services/verificationService';
 import {
   DocumentType,
@@ -35,6 +37,7 @@ type WorkflowStep =
   | 'doc-type'
   | 'ocr-loading'
   | 'extract'
+  | 'ekyc'
   | 'verify'
   | 'result';
 
@@ -61,6 +64,10 @@ export default function SecureScanApp() {
   const [finalResult, setFinalResult] = useState<VerificationResult | null>(null);
   const [unavailableDocs, setUnavailableDocs] = useState<UnavailableDocFlags>({
     passport: false,
+    aadhaar: false,
+    pan: false,
+    voter_id: false,
+    driving_license: false,
     proof_of_address: false,
     bank_statement: false,
     employment_letter: false,
@@ -83,7 +90,9 @@ export default function SecureScanApp() {
   const [history, setHistory] = useState<HistoryItem[]>([]);
 
   useEffect(() => {
-    fetch('http://localhost:8000/api/history')
+    const apiBase = getApiBaseUrl();
+    const endpoint = apiBase ? `${apiBase}/api/history` : '/api/history';
+    fetch(endpoint)
       .then(res => res.json())
       .then(data => {
         if (Array.isArray(data)) setHistory(data);
@@ -156,16 +165,32 @@ export default function SecureScanApp() {
     setUnavailableDocs(unavailable);
     setSessionChecklist(checklist);
 
+    // Sync active image with primaryDoc if available in session
+    const primaryDocObj = sessionDocs.find(d => d.docType === primaryDoc);
+    if (primaryDocObj) {
+      setRawImage(primaryDocObj.rawImage);
+      setProcessedImage(primaryDocObj.processedImage);
+      const backDoc = sessionDocs.find(d => d.docType === primaryDoc && d.side === 'back');
+      if (backDoc) {
+        setBackRawImage(backDoc.rawImage);
+        setBackProcessedImage(backDoc.processedImage);
+      }
+    }
+
     setStep('ocr-loading');
 
     // Run OCR for every doc marked as 'scanned'
     const scannedEntries = checklist.filter(e => e.status === 'scanned');
     const fieldsMap: Record<string, Record<string, ExtractedField>> = {};
     for (const entry of scannedEntries) {
+      const matchDoc = sessionDocs.find(d => d.docType === entry.docType);
+      const imgToOcr = matchDoc?.processedImage || matchDoc?.rawImage || processedImage || rawImage;
+      const docSuspicious = matchDoc ? matchDoc.isSuspicious : isSuspicious;
+
       fieldsMap[entry.docType] = await ocr(
-        processedImage || rawImage,
+        imgToOcr,
         entry.docType,
-        isSuspicious,
+        docSuspicious,
         ocrEngine
       );
     }
@@ -176,9 +201,31 @@ export default function SecureScanApp() {
     setStep('extract');
   };
 
-  // 5. Extraction confirmed -> AI verification screen
+  // 5. Extraction confirmed -> eKYC for Aadhaar, or AI verification screen
   const handleProceedToVerification = (updatedFields: Record<string, ExtractedField>) => {
     setExtractedFields(updatedFields);
+    if (detectedType === 'aadhaar') {
+      setStep('ekyc');
+    } else {
+      setStep('verify');
+    }
+  };
+
+  const handleEkycVerified = (data: AadhaarEkycData) => {
+    setEkycData(data);
+    setStep('verify');
+  };
+
+  const handleEkycSkip = () => {
+    setEkycData({
+      maskedAadhaar: extractedFields.maskedAadhaar?.value || extractedFields.aadharNo?.value || 'XXXX XXXX 7821',
+      nameVerified: false,
+      dobVerified: false,
+      genderVerified: false,
+      isVerified: false,
+      isSkipped: true,
+      timestamp: new Date().toISOString(),
+    });
     setStep('verify');
   };
 
@@ -197,7 +244,8 @@ export default function SecureScanApp() {
       detectedType,
       valResult,
       tampResult,
-      faceResult
+      faceResult,
+      ekycData
     );
 
     // Append N/A document notes into the audit checks
@@ -229,7 +277,12 @@ export default function SecureScanApp() {
         identifier:
           extractedFields.passportNumber?.value ||
           extractedFields.maskedAadhaar?.value ||
+          extractedFields.aadharNo?.value ||
+          extractedFields.panNumber?.value ||
+          extractedFields.epicNumber?.value ||
+          extractedFields.voterId?.value ||
           extractedFields.dlNumber?.value ||
+          extractedFields.licenseNumber?.value ||
           extractedFields.visaNumber?.value ||
           'ID-DOC-01',
         riskLevel: finalResult.riskLevel,
@@ -245,7 +298,9 @@ export default function SecureScanApp() {
       };
 
       try {
-        const response = await fetch('http://localhost:8000/api/history', {
+        const apiBase = getApiBaseUrl();
+        const endpoint = apiBase ? `${apiBase}/api/history` : '/api/history';
+        const response = await fetch(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(newHistoryItem)
@@ -271,6 +326,10 @@ export default function SecureScanApp() {
     setEkycData(null);
     setUnavailableDocs({
       passport: false,
+      aadhaar: false,
+      pan: false,
+      voter_id: false,
+      driving_license: false,
       proof_of_address: false,
       bank_statement: false,
       employment_letter: false,
@@ -346,6 +405,7 @@ export default function SecureScanApp() {
                   initialType={detectedType}
                   initialConfidence={confidence}
                   initialFileName={fileName}
+                  sessionDocs={sessionDocs}
                   onBack={() => setStep('review')}
                   onContinue={handleDocTypeContinue}
                 />
@@ -371,6 +431,15 @@ export default function SecureScanApp() {
                   sessionDocs={sessionDocs}
                   onBack={() => setStep('doc-type')}
                   onProceedToVerification={handleProceedToVerification}
+                />
+              )}
+
+              {step === 'ekyc' && (
+                <AadhaarEkycScreen
+                  maskedAadhaar={extractedFields.maskedAadhaar?.value || extractedFields.aadharNo?.value || 'XXXX XXXX 7821'}
+                  onBack={() => setStep('extract')}
+                  onVerified={handleEkycVerified}
+                  onSkip={handleEkycSkip}
                 />
               )}
 

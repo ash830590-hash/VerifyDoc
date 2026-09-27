@@ -213,9 +213,44 @@ def ocr_view(request):
         if exp_val:
             fields['expiryDate'] = {'key': 'expiryDate', 'label': 'Expiry Date', 'value': str(exp_val), 'confidence': 95, 'editable': True}
 
+    elif doc_type in ('pan', 'pan_card'):
+        pan_val = real_extracted.get('pan_number') or ''
+        name_val = real_extracted.get('name') or ''
+        father_val = real_extracted.get('father_name') or ''
+        dob_val = real_extracted.get('dob') or ''
+
+        fields['panNumber'] = {'key': 'panNumber', 'label': 'PAN Number', 'value': str(pan_val) if pan_val else '', 'confidence': 98 if pan_val else 0, 'editable': True}
+        fields['name'] = {'key': 'name', 'label': 'Name', 'value': str(name_val) if name_val else '', 'confidence': 98 if name_val else 0, 'editable': True}
+        if father_val:
+            fields['fatherName'] = {'key': 'fatherName', 'label': "Father's Name", 'value': str(father_val), 'confidence': 95, 'editable': True}
+        if dob_val:
+            fields['dateOfBirth'] = {'key': 'dateOfBirth', 'label': 'Date of Birth', 'value': str(dob_val), 'confidence': 98, 'editable': True}
+
+    elif doc_type in ('voter_id', 'voter', 'epic'):
+        epic_val = real_extracted.get('epic_number') or real_extracted.get('voter_id') or ''
+        name_val = real_extracted.get('name') or ''
+        rel_val = real_extracted.get('relation_name') or ''
+        gender_val = real_extracted.get('gender') or ''
+        dob_val = real_extracted.get('dob') or ''
+        age_val = real_extracted.get('age') or ''
+        addr_val = real_extracted.get('address') or ''
+
+        fields['epicNumber'] = {'key': 'epicNumber', 'label': 'EPIC / Voter ID Number', 'value': str(epic_val) if epic_val else '', 'confidence': 98 if epic_val else 0, 'editable': True}
+        fields['name'] = {'key': 'name', 'label': 'Name', 'value': str(name_val) if name_val else '', 'confidence': 98 if name_val else 0, 'editable': True}
+        if rel_val:
+            fields['relationName'] = {'key': 'relationName', 'label': "Father / Husband's Name", 'value': str(rel_val), 'confidence': 95, 'editable': True}
+        if gender_val:
+            fields['gender'] = {'key': 'gender', 'label': 'Gender', 'value': str(gender_val), 'confidence': 98, 'editable': True}
+        if dob_val:
+            fields['dateOfBirth'] = {'key': 'dateOfBirth', 'label': 'Date of Birth', 'value': str(dob_val), 'confidence': 98, 'editable': True}
+        elif age_val:
+            fields['age'] = {'key': 'age', 'label': 'Age', 'value': str(age_val), 'confidence': 95, 'editable': True}
+        if addr_val:
+            fields['address'] = {'key': 'address', 'label': 'Address', 'value': str(addr_val), 'confidence': 95, 'editable': True}
+
     # Add any extra extracted fields from the OCR pipeline
     for k, v in real_extracted.items():
-        if k not in ['name', 'dob', 'gender', 'aadhaar_number', 'passport_number', 'dl_number', 'visa_number', 'address', 'validity', 'blood_group', 'father_name', 'vehicle_classes', 'nationality', 'expiry_date', 'visa_type', 'entries', 'aadhaar_number_valid', 'mrz_checksum_valid']:
+        if k not in ['name', 'dob', 'gender', 'aadhaar_number', 'passport_number', 'dl_number', 'visa_number', 'pan_number', 'epic_number', 'voter_id', 'father_name', 'relation_name', 'age', 'address', 'validity', 'blood_group', 'vehicle_classes', 'nationality', 'expiry_date', 'visa_type', 'entries', 'aadhaar_number_valid', 'mrz_checksum_valid', 'pan_number_valid', 'voter_id_valid']:
             if v and str(v).strip():
                 fields[k] = {
                     'key': k,
@@ -242,17 +277,24 @@ def validate_document_view(request):
     # Extract values for the original DocumentValidator
     extracted_for_validator = {}
     if doc_type == 'aadhaar':
-        extracted_for_validator['aadhaar_number'] = fields_dict.get('maskedAadhaar', {}).get('value')
+        extracted_for_validator['aadhaar_number'] = fields_dict.get('maskedAadhaar', {}).get('value') or fields_dict.get('aadharNo', {}).get('value')
         extracted_for_validator['name'] = fields_dict.get('name', {}).get('value')
         extracted_for_validator['dob'] = fields_dict.get('dateOfBirth', {}).get('value')
     elif doc_type == 'passport':
         extracted_for_validator['passport_number'] = fields_dict.get('passportNumber', {}).get('value')
         extracted_for_validator['name'] = fields_dict.get('name', {}).get('value')
     elif doc_type in ('driving_license', 'dl'):
-        extracted_for_validator['dl_number'] = fields_dict.get('dlNumber', {}).get('value')
+        extracted_for_validator['dl_number'] = fields_dict.get('dlNumber', {}).get('value') or fields_dict.get('licenseNumber', {}).get('value')
         extracted_for_validator['name'] = fields_dict.get('name', {}).get('value')
     elif doc_type == 'visa':
         extracted_for_validator['visa_number'] = fields_dict.get('visaNumber', {}).get('value')
+    elif doc_type in ('pan', 'pan_card'):
+        extracted_for_validator['pan_number'] = fields_dict.get('panNumber', {}).get('value')
+        extracted_for_validator['name'] = fields_dict.get('name', {}).get('value')
+        extracted_for_validator['dob'] = fields_dict.get('dateOfBirth', {}).get('value')
+    elif doc_type in ('voter_id', 'voter', 'epic'):
+        extracted_for_validator['epic_number'] = fields_dict.get('epicNumber', {}).get('value') or fields_dict.get('voterId', {}).get('value')
+        extracted_for_validator['name'] = fields_dict.get('name', {}).get('value')
 
     # Run original DocumentValidator from src.validators
     val_status = DocumentValidator.validate_document(doc_type if doc_type != 'driving_license' else 'dl', extracted_for_validator)
