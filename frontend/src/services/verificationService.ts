@@ -106,12 +106,25 @@ function parseOcrText(rawText: string, docType: DocumentType): Record<string, Ex
 
   // 3. Document-specific identifiers
   if (docType === 'aadhaar') {
-    const aadhaarMatch = rawText.match(/\b(\d{4}\s\d{4}\s\d{4})\b/) || rawText.match(/\b([X\d]{4}\s[X\d]{4}\s\d{4})\b/);
+    const aadhaarMatch = rawText.match(/\b(\d{4}[-\s]?\d{4}[-\s]?\d{4})\b/) ||
+                         rawText.match(/\b([X\d]{4}[-\s]?[X\d]{4}[-\s]?\d{4})\b/i);
     if (aadhaarMatch) {
+      const cleanUid = aadhaarMatch[1].replace(/[-\s]/g, '');
+      const formattedUid = cleanUid.length === 12
+        ? `${cleanUid.slice(0, 4)} ${cleanUid.slice(4, 8)} ${cleanUid.slice(8, 12)}`
+        : aadhaarMatch[1];
+
+      fields.aadharNo = {
+        key: 'aadharNo',
+        label: 'Aadhaar No',
+        value: formattedUid,
+        confidence: 98,
+        editable: true,
+      };
       fields.maskedAadhaar = {
         key: 'maskedAadhaar',
         label: 'Masked Aadhaar Number',
-        value: aadhaarMatch[1],
+        value: formattedUid,
         confidence: 98,
         editable: true,
       };
@@ -134,17 +147,6 @@ function parseOcrText(rawText: string, docType: DocumentType): Record<string, Ex
         key: 'dlNumber',
         label: 'Licence Number',
         value: dlMatch[1].toUpperCase(),
-        confidence: 98,
-        editable: true,
-      };
-    }
-  } else if (docType === 'pan') {
-    const panMatch = rawText.match(/\b([A-Z]{5}[0-9]{4}[A-Z])\b/);
-    if (panMatch) {
-      fields.panNumber = {
-        key: 'panNumber',
-        label: 'PAN Number',
-        value: panMatch[1].toUpperCase(),
         confidence: 98,
         editable: true,
       };
@@ -210,7 +212,8 @@ function parseOcrText(rawText: string, docType: DocumentType): Record<string, Ex
     }
   }
 
-  // 4. Look for Name: Check explicit 'Name:' label first, then candidate lines
+  // 4. Look for Name:
+  // (a) Check explicit 'Name:' label
   const explicitNameMatch = rawText.match(/(?:Elector[^\w\n]{0,4}\s*Name|Name|Holder Name|निर्वाचक\s*का\s*नाम|नाम)[\s.:\n]+([A-Za-z\s\.\'-]{3,40})/i);
   if (explicitNameMatch) {
     const cand = explicitNameMatch[1].trim().split('\n')[0].replace(/(?:Father|Husband|Mother|Relation|पिता|पति|Gender|Sex|लिंग|Age|आयु|DOB|Date).*$/i, '').trim();
@@ -225,19 +228,72 @@ function parseOcrText(rawText: string, docType: DocumentType): Record<string, Ex
     }
   }
 
+  // (b) For ID cards (e.g. Aadhaar) without 'Name:' label: Use Anchor Analysis (lines preceding DOB or Gender)
+  if (!fields.name) {
+    const forbiddenKeywords = [
+      'INDIA', 'AUTHORITY', 'GOVERNMENT', 'BHARAT', 'SARKAR', 'UIDAI',
+      'MALE', 'FEMALE', 'TRANSGENDER', 'AADHAAR', 'DOB', 'DATE', 'BIRTH',
+      'HELP', 'ISSUE', 'ADDRESS', 'MERA', 'ENROLMENT', 'DETAILS', 'PROOF',
+      'IDENTITY', 'CITIZENSHIP', 'VERIFICATION', 'AUTHENTICATION', 'SCANNING',
+      'PURPOSE', 'CARD', 'NUMBER', 'VID', 'SIGNATURE', 'UNIQUE', 'IDENTIFICATION',
+      'COMMISSION', 'ELECTION', 'NIRVACHAN', 'PHOTO', 'UNION', 'REPUBLIC'
+    ];
+
+    let anchorIdx = -1;
+    for (let i = 0; i < lines.length; i++) {
+      const lineUp = lines[i].toUpperCase();
+      if (
+        /DOB|D\.O\.B|BIRTH|YEAR|YOB|जन्म|तारीख/i.test(lineUp) ||
+        /\b\d{2}[\/\-.]\d{2}[\/\-.]\d{4}\b/.test(lines[i]) ||
+        /\b(MALE|FEMALE|TRANSGENDER|पुरुष|महिला)\b/i.test(lineUp)
+      ) {
+        anchorIdx = i;
+        break;
+      }
+    }
+
+    if (anchorIdx > 0) {
+      for (let offset = 1; offset <= Math.min(4, anchorIdx); offset++) {
+        const candLine = lines[anchorIdx - offset]
+          .replace(/^(?:Name|To|Holder|S\/O|D\/O|W\/O|C\/O)[\s.:]+/i, '')
+          .replace(/[^A-Za-z\s\.\'-]/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+
+        if (candLine.length >= 3 && candLine.length <= 40) {
+          const upCand = candLine.toUpperCase();
+          const hasForbidden = forbiddenKeywords.some((k) => upCand.includes(k));
+          const words = candLine.split(' ').filter((w) => w.length >= 2);
+          if (!hasForbidden && words.length >= 1 && words.length <= 5) {
+            fields.name = {
+              key: 'name',
+              label: docType === 'driving_license' ? 'Holder Name' : 'Name',
+              value: words.join(' '),
+              confidence: 95,
+              editable: true,
+            };
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  // (c) General Fallback
   if (!fields.name) {
     const candidateNames = lines.filter((l) => {
-      const isHeader = /GOVERNMENT|INDIA|UNION|REPUBLIC|PASSPORT|DRIVING|LICENCE|ELECTION|COMMISSION|AADHAAR|UNIQUE|AUTHORITY|INCOME|TAX|PERMANENT|ACCOUNT|ELECTOR|IDENTITY|PHOTO|CARD|BHARAT|NIRVACHAN/i.test(l);
-      const clean = l.replace(/[^A-Za-z\s]/g, '').trim();
-      return !isHeader && clean.length >= 3 && clean.length <= 40 && !/\d/.test(l);
+      const isHeader = /GOVERNMENT|INDIA|UNION|REPUBLIC|PASSPORT|DRIVING|LICENCE|ELECTION|COMMISSION|AADHAAR|UNIQUE|AUTHORITY|INCOME|TAX|PERMANENT|ACCOUNT|ELECTOR|IDENTITY|PHOTO|CARD|BHARAT|NIRVACHAN|ET\s*:\s*SE|MERA|PEHCHAN/i.test(l);
+      const clean = l.replace(/[^A-Za-z\s]/g, '').replace(/\s+/g, ' ').trim();
+      const words = clean.split(' ').filter((w) => w.length >= 2);
+      return !isHeader && clean.length >= 3 && clean.length <= 40 && !/\d/.test(l) && words.length >= 1 && words.length <= 4;
     });
 
     if (candidateNames.length > 0) {
       fields.name = {
         key: 'name',
         label: docType === 'driving_license' ? 'Holder Name' : 'Name',
-        value: candidateNames[0],
-        confidence: 95,
+        value: candidateNames[0].replace(/[^A-Za-z\s]/g, '').trim(),
+        confidence: 90,
         editable: true,
       };
     }

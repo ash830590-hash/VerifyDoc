@@ -132,12 +132,16 @@ def ocr_view(request):
     if doc_type == 'aadhaar':
         name_val = real_extracted.get('name') or ''
         uid_val = real_extracted.get('aadhaar_number') or real_extracted.get('masked_aadhaar') or ''
+        if uid_val and len(str(uid_val).replace(' ', '')) == 12 and str(uid_val).replace(' ', '').isdigit():
+            c_uid = str(uid_val).replace(' ', '')
+            uid_val = f"{c_uid[:4]} {c_uid[4:8]} {c_uid[8:]}"
         addr_val = real_extracted.get('address') or ''
         dob_val = real_extracted.get('dob') or ''
         gender_val = real_extracted.get('gender') or ''
         
         fields['name'] = {'key': 'name', 'label': 'Name', 'value': str(name_val) if name_val else '', 'confidence': 98 if name_val else 0, 'editable': True}
         fields['aadharNo'] = {'key': 'aadharNo', 'label': 'Aadhaar No', 'value': str(uid_val) if uid_val else '', 'confidence': 98 if uid_val else 0, 'editable': True}
+        fields['maskedAadhaar'] = {'key': 'maskedAadhaar', 'label': 'Masked Aadhaar Number', 'value': str(uid_val) if uid_val else '', 'confidence': 98 if uid_val else 0, 'editable': True}
         fields['address'] = {'key': 'address', 'label': 'Address', 'value': str(addr_val) if addr_val else '', 'confidence': 95 if addr_val else 0, 'editable': True}
         fields['dateOfBirth'] = {'key': 'dateOfBirth', 'label': 'Date of Birth', 'value': str(dob_val) if dob_val else '', 'confidence': 98 if dob_val else 0, 'editable': True}
         fields['gender'] = {'key': 'gender', 'label': 'Gender', 'value': str(gender_val) if gender_val else '', 'confidence': 98 if gender_val else 0, 'editable': True}
