@@ -183,16 +183,45 @@ export default function SecureScanApp() {
     const scannedEntries = checklist.filter(e => e.status === 'scanned');
     const fieldsMap: Record<string, Record<string, ExtractedField>> = {};
     for (const entry of scannedEntries) {
-      const matchDoc = sessionDocs.find(d => d.docType === entry.docType);
-      const imgToOcr = matchDoc?.processedImage || matchDoc?.rawImage || processedImage || rawImage;
-      const docSuspicious = matchDoc ? matchDoc.isSuspicious : isSuspicious;
+      // Find all scanned sides for this docType
+      const typeDocs = sessionDocs.filter(d => d.docType === entry.docType);
+      const frontDoc = typeDocs.find(d => d.side === 'front' || d.side === 'single') || typeDocs[0];
+      const backDoc = typeDocs.find(d => d.side === 'back');
 
-      fieldsMap[entry.docType] = await ocr(
-        imgToOcr,
+      const frontImg = frontDoc?.processedImage || frontDoc?.rawImage || processedImage || rawImage;
+      const docSuspicious = frontDoc ? frontDoc.isSuspicious : isSuspicious;
+
+      // 1. OCR Front Side
+      let mergedFields = await ocr(
+        frontImg,
         entry.docType,
         docSuspicious,
         ocrEngine
       );
+
+      // 2. OCR Back Side if present, and merge address / identifiers
+      const backImg = backDoc?.processedImage || backDoc?.rawImage || (entry.docType === primaryDoc ? (backProcessedImage || backRawImage) : undefined);
+      if (backImg) {
+        try {
+          const backFields = await ocr(
+            backImg,
+            entry.docType,
+            docSuspicious,
+            ocrEngine
+          );
+          for (const [k, v] of Object.entries(backFields)) {
+            if (v && v.value && v.value.trim().length > 0) {
+              if (!mergedFields[k] || !mergedFields[k].value || mergedFields[k].confidence < v.confidence) {
+                mergedFields[k] = v;
+              }
+            }
+          }
+        } catch (backErr) {
+          console.warn('Back side OCR error:', backErr);
+        }
+      }
+
+      fieldsMap[entry.docType] = mergedFields;
     }
     setAllDocFields(fieldsMap);
 

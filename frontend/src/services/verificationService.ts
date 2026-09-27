@@ -110,45 +110,70 @@ function parseOcrText(rawText: string, docType: DocumentType): Record<string, Ex
   // 3. Document-specific identifiers
   if (docType === 'aadhaar') {
     // Matches 12-digit Aadhaar in 4-4-4 format, dashed, continuous, or masked
-    const uidMatch = rawText.match(/\b(\d{4}[\s-]+\d{4}[\s-]+\d{4})\b/) ||
-                     rawText.match(/\b([X\d]{4}[\s-]+[X\d]{4}[\s-]+\d{4})\b/i) ||
-                     rawText.match(/\b(\d{12})\b/);
-    if (uidMatch) {
-      const rawDigits = uidMatch[1].replace(/[-\s]/g, '');
-      const formatted = rawDigits.length === 12
-        ? `${rawDigits.slice(0, 4)} ${rawDigits.slice(4, 8)} ${rawDigits.slice(8, 12)}`
-        : uidMatch[1];
+    // Tolerate OCR character confusions (O->0, I/l->1, S->5, B->8, Z->2)
+    const groupedMatch = rawText.match(/\b([0-9OISZBld]{4})[\s\-\.\/_]+([0-9OISZBld]{4})[\s\-\.\/_]+([0-9OISZBld]{4})\b/i);
+    const maskedMatch = rawText.match(/\b([X\d]{4}[\s\-]+[X\d]{4}[\s\-]+\d{4})\b/i);
+    const contMatch = rawText.match(/\b(\d{12})\b/);
+
+    let cleanUid = '';
+    if (groupedMatch) {
+      const raw = (groupedMatch[1] + groupedMatch[2] + groupedMatch[3])
+        .toUpperCase()
+        .replace(/O/g, '0')
+        .replace(/[IL]/g, '1')
+        .replace(/S/g, '5')
+        .replace(/B/g, '8')
+        .replace(/Z/g, '2');
+      if (/^\d{12}$/.test(raw)) {
+        cleanUid = `${raw.slice(0, 4)} ${raw.slice(4, 8)} ${raw.slice(8, 12)}`;
+      }
+    } else if (maskedMatch) {
+      cleanUid = maskedMatch[1];
+    } else if (contMatch) {
+      cleanUid = `${contMatch[1].slice(0, 4)} ${contMatch[1].slice(4, 8)} ${contMatch[1].slice(8, 12)}`;
+    }
+
+    if (cleanUid) {
       fields.aadharNo = {
         key: 'aadharNo',
         label: 'Aadhaar No',
-        value: formatted,
+        value: cleanUid,
         confidence: 98,
         editable: true,
       };
       fields.maskedAadhaar = {
         key: 'maskedAadhaar',
         label: 'Masked Aadhaar Number',
-        value: formatted,
+        value: cleanUid,
         confidence: 98,
         editable: true,
       };
     }
 
-    // Address extraction for Aadhaar (if back side or letter scanned)
-    const addrMatch = rawText.match(/(?:Address|पता|S\/O|C\/O|W\/O|D\/O)[\s.:\n]+([\s\S]{10,120}?)(?=\b\d{6}\b|$)/i);
+    // Address extraction for Aadhaar (captures full multi-line address and PIN code)
+    const addrMatch = rawText.match(/(?:Address|पता)[\s.:\n]+([\s\S]{10,250}?)(?=\b\d{6}\b|VID|\b\d{4}\s\d{4}\s\d{4}|help@|$)/i);
     if (addrMatch) {
       const pinMatch = rawText.match(/\b\d{6}\b/);
-      let addr = addrMatch[1].replace(/\n+/g, ', ').replace(/\s+/g, ' ').trim();
+      let addr = addrMatch[1]
+        .replace(/^(?:Address|पता)[\s.:,-]+/i, '')
+        .replace(/\n+/g, ', ')
+        .replace(/\s+/g, ' ')
+        .replace(/, ,+/g, ',')
+        .replace(/,,+/g, ',')
+        .trim();
       if (pinMatch && !addr.includes(pinMatch[0])) {
-        addr += ` - ${pinMatch[0]}`;
+        addr = addr.replace(/[-,\s]+$/, '') + `, ${pinMatch[0]}`;
       }
-      fields.address = {
-        key: 'address',
-        label: 'Address',
-        value: addr,
-        confidence: 95,
-        editable: true,
-      };
+      addr = addr.replace(/^[,:\s\-]+|[,:\s\-]+$/g, '');
+      if (addr.length >= 10) {
+        fields.address = {
+          key: 'address',
+          label: 'Address',
+          value: addr,
+          confidence: 95,
+          editable: true,
+        };
+      }
     }
   } else if (docType === 'passport') {
     const passportMatch = rawText.match(/\b([A-PR-WYa-pr-wy][0-9]{7})\b/);
