@@ -83,19 +83,20 @@ class VoterIDExtractor(BaseExtractor):
                 fields["age"] = age_match.group(1)
 
         # 4. Relation Name (Father / Husband / Mother / Guardian)
-        rel_match = re.search(r'(?:Father[\'s]*\s*Name|Husband[\'s]*\s*Name|Mother[\'s]*\s*Name|Relation|पिता|पति|माता)[\s.:\n]+([A-Za-z\s\.\'-]{3,40})', raw_text, re.IGNORECASE)
+        # OCR often misreads "Father's Name" as "Father'$ Name", "Father 's Name", etc.
+        rel_match = re.search(r'(?:Father[^\w\n]{0,4}\s*Name|Husband[^\w\n]{0,4}\s*Name|Mother[^\w\n]{0,4}\s*Name|Relation|पिता|पति|माता)[\s.:\n]+([A-Za-z\s\.\'-]{3,40})', raw_text, re.IGNORECASE)
         if rel_match:
             cand_rel = rel_match.group(1).strip().split('\n')[0].strip()
             cand_rel = re.sub(r'(?:Gender|Sex|लिंग|Age|आयु|DOB|Date).*$', '', cand_rel, flags=re.IGNORECASE).strip()
-            if len(cand_rel) >= 3:
+            if len(cand_rel) >= 3 and not any(k in cand_rel.upper() for k in ["ELECTION", "COMMISSION", "BHARAT", "NIRVACHAN", "INDIA"]):
                 fields["relation_name"] = cand_rel
 
         # 5. Elector / Holder Name Extraction
-        name_match = re.search(r'(?:Elector[\'s]*\s*Name|Name|निर्वाचक\s*का\s*नाम|नाम)[\s.:\n]+([A-Za-z\s\.\'-]{3,40})', raw_text, re.IGNORECASE)
+        name_match = re.search(r'(?:Elector[^\w\n]{0,4}\s*Name|Name|निर्वाचक\s*का\s*नाम|नाम)[\s.:\n]+([A-Za-z\s\.\'-]{3,40})', raw_text, re.IGNORECASE)
         if name_match:
             cand = name_match.group(1).strip().split('\n')[0].strip()
-            cand = re.sub(r'(?:Father|Husband|Mother|Relation|पिता|पति|Gender|Sex).*$', '', cand, flags=re.IGNORECASE).strip()
-            if len(cand) >= 3 and not any(k in cand.upper() for k in ["ELECTION", "COMMISSION", "BHARAT", "NIRVACHAN", "INDIA"]):
+            cand = re.sub(r'(?:Father|Husband|Mother|Relation|पिता|पति|Gender|Sex|लिंग|Age|आयु).*$', '', cand, flags=re.IGNORECASE).strip()
+            if len(cand) >= 3 and not any(k in cand.upper() for k in ["ELECTION", "COMMISSION", "BHARAT", "NIRVACHAN", "INDIA", "ELECTOR", "PHOTO", "IDENTITY"]):
                 fields["name"] = cand
 
         # Fallback Name Extraction using lines

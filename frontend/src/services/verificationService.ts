@@ -150,7 +150,7 @@ function parseOcrText(rawText: string, docType: DocumentType): Record<string, Ex
       };
     }
   } else if (docType === 'voter_id') {
-    const epicMatch = rawText.match(/\b([A-Z]{3}[0-9]{7})\b/);
+    const epicMatch = rawText.match(/\b([A-Z]{3}[0-9]{7})\b/i);
     if (epicMatch) {
       fields.epicNumber = {
         key: 'epicNumber',
@@ -159,6 +159,43 @@ function parseOcrText(rawText: string, docType: DocumentType): Record<string, Ex
         confidence: 98,
         editable: true,
       };
+    }
+    const relMatch = rawText.match(/(?:Father[^\w\n]{0,4}\s*Name|Husband[^\w\n]{0,4}\s*Name|Mother[^\w\n]{0,4}\s*Name|Relation|पिता|पति|माता)[\s.:\n]+([A-Za-z\s\.\'-]{3,40})/i);
+    if (relMatch) {
+      const cleanRel = relMatch[1].trim().split('\n')[0].replace(/(?:Gender|Sex|लिंग|Age|आयु|DOB|Date).*$/i, '').trim();
+      if (cleanRel.length >= 3 && !/ELECTION|COMMISSION|BHARAT|INDIA/i.test(cleanRel)) {
+        fields.relationName = {
+          key: 'relationName',
+          label: "Father / Husband's Name",
+          value: cleanRel,
+          confidence: 97,
+          editable: true,
+        };
+      }
+    }
+  } else if (docType === 'pan') {
+    const panMatch = rawText.match(/\b([A-Z]{5}[0-9]{4}[A-Z])\b/);
+    if (panMatch) {
+      fields.panNumber = {
+        key: 'panNumber',
+        label: 'PAN Number',
+        value: panMatch[1].toUpperCase(),
+        confidence: 98,
+        editable: true,
+      };
+    }
+    const fatherMatch = rawText.match(/(?:Father[^\w\n]{0,4}\s*Name|पिता\s*का\s*नाम)[\s.:\n]+([A-Za-z\s\.\'-]{3,40})/i);
+    if (fatherMatch) {
+      const cleanFather = fatherMatch[1].trim().split('\n')[0].trim();
+      if (cleanFather.length >= 3) {
+        fields.fatherName = {
+          key: 'fatherName',
+          label: "Father's Name",
+          value: cleanFather,
+          confidence: 97,
+          editable: true,
+        };
+      }
     }
   } else if (docType === 'visa') {
     const visaMatch = rawText.match(/\b(V[0-9]{7,9})\b/i);
@@ -173,21 +210,37 @@ function parseOcrText(rawText: string, docType: DocumentType): Record<string, Ex
     }
   }
 
-  // 4. Look for Name (first non-header alphabetic line)
-  const candidateNames = lines.filter((l) => {
-    const isHeader = /GOVERNMENT|INDIA|UNION|REPUBLIC|PASSPORT|DRIVING|LICENCE|ELECTION|COMMISSION|AADHAAR|UNIQUE|AUTHORITY|INCOME|TAX|PERMANENT|ACCOUNT/i.test(l);
-    const clean = l.replace(/[^A-Za-z\s]/g, '').trim();
-    return !isHeader && clean.length >= 3 && clean.length <= 40 && !/\d/.test(l);
-  });
+  // 4. Look for Name: Check explicit 'Name:' label first, then candidate lines
+  const explicitNameMatch = rawText.match(/(?:Elector[^\w\n]{0,4}\s*Name|Name|Holder Name|निर्वाचक\s*का\s*नाम|नाम)[\s.:\n]+([A-Za-z\s\.\'-]{3,40})/i);
+  if (explicitNameMatch) {
+    const cand = explicitNameMatch[1].trim().split('\n')[0].replace(/(?:Father|Husband|Mother|Relation|पिता|पति|Gender|Sex|लिंग|Age|आयु|DOB|Date).*$/i, '').trim();
+    if (cand.length >= 3 && !/ELECTION|COMMISSION|BHARAT|INDIA|GOVERNMENT|IDENTITY|PHOTO|CARD|UNIQUE|AUTHORITY|TAX|DEPARTMENT/i.test(cand)) {
+      fields.name = {
+        key: 'name',
+        label: docType === 'driving_license' ? 'Holder Name' : 'Name',
+        value: cand,
+        confidence: 98,
+        editable: true,
+      };
+    }
+  }
 
-  if (candidateNames.length > 0) {
-    fields.name = {
-      key: 'name',
-      label: docType === 'driving_license' ? 'Holder Name' : 'Name',
-      value: candidateNames[0],
-      confidence: 95,
-      editable: true,
-    };
+  if (!fields.name) {
+    const candidateNames = lines.filter((l) => {
+      const isHeader = /GOVERNMENT|INDIA|UNION|REPUBLIC|PASSPORT|DRIVING|LICENCE|ELECTION|COMMISSION|AADHAAR|UNIQUE|AUTHORITY|INCOME|TAX|PERMANENT|ACCOUNT|ELECTOR|IDENTITY|PHOTO|CARD|BHARAT|NIRVACHAN/i.test(l);
+      const clean = l.replace(/[^A-Za-z\s]/g, '').trim();
+      return !isHeader && clean.length >= 3 && clean.length <= 40 && !/\d/.test(l);
+    });
+
+    if (candidateNames.length > 0) {
+      fields.name = {
+        key: 'name',
+        label: docType === 'driving_license' ? 'Holder Name' : 'Name',
+        value: candidateNames[0],
+        confidence: 95,
+        editable: true,
+      };
+    }
   }
 
   // 5. If general scannable object, add lines of recognized text
@@ -217,6 +270,7 @@ export async function ocr(
   enginePref: string = 'auto'
 ): Promise<Record<string, ExtractedField>> {
   // 1. Try Backend OCR Engine endpoint with real image payload
+  let backendFields: Record<string, ExtractedField> | null = null;
   try {
     const formData = new FormData();
 
@@ -259,14 +313,21 @@ export async function ocr(
       },
     });
     if (response.data && response.data.fields && Object.keys(response.data.fields).length > 0) {
-      console.log('Backend real OCR extraction response:', response.data);
-      return response.data.fields;
+      // Check if backend returned at least one field with a non-empty value
+      const hasRealData = Object.values(response.data.fields as Record<string, ExtractedField>)
+        .some((f) => f.value && f.value.trim().length > 0);
+      if (hasRealData) {
+        console.log('Backend real OCR extraction response:', response.data);
+        // Return backend data directly — no Tesseract override, no mock placeholders
+        return response.data.fields;
+      }
+      backendFields = response.data.fields;
     }
   } catch (err: any) {
     console.warn('Backend OCR call error, falling back:', err.message);
   }
 
-  // 2. Run client-side Tesseract.js OCR on real captured/scanned image
+  // 2. Run client-side Tesseract.js OCR on real captured/scanned image (only when backend failed or returned empty)
   let clientOcrFields: Record<string, ExtractedField> = {};
   if (typeof window !== 'undefined' && typeof image === 'string' && !image.endsWith('.svg')) {
     try {
@@ -279,273 +340,75 @@ export async function ocr(
     }
   }
 
-  // Realistic mock extraction by document type
-  let baseFields: Record<string, ExtractedField> = {};
+  // 3. Build structured fields from Tesseract results — NO mock/placeholder data
+  // Use Tesseract-parsed fields if available; otherwise return empty fields with 0% confidence
+  const emptyBaseFields = getEmptyFieldsForDocType(docType);
+
+  // Merge: empty structure < backend empty fields < Tesseract real fields
+  const merged = { ...emptyBaseFields, ...(backendFields || {}), ...clientOcrFields };
+  return merged;
+}
+
+/**
+ * Returns empty field structure for a document type (labels only, no fake values).
+ * These serve as field labels/keys for the UI, with empty values and 0% confidence.
+ */
+function getEmptyFieldsForDocType(docType: DocumentType): Record<string, ExtractedField> {
+  const empty = (key: string, label: string): ExtractedField => ({
+    key, label, value: '', confidence: 0, editable: true,
+  });
 
   if (docType === 'passport') {
-    baseFields = {
-      passportNumber: {
-        key: 'passportNumber',
-        label: 'Passport Number',
-        value: 'A1234567',
-        confidence: 99,
-        editable: true,
-      },
-      name: {
-        key: 'name',
-        label: 'Name',
-        value: 'Rahul Sharma',
-        confidence: 99,
-        editable: true,
-      },
-      dateOfBirth: {
-        key: 'dateOfBirth',
-        label: 'DOB',
-        value: '14/03/2003',
-        confidence: 97,
-        editable: true,
-      },
-      dateOfIssue: {
-        key: 'dateOfIssue',
-        label: 'Date of Issue',
-        value: '23/08/2022',
-        confidence: 96,
-        editable: true,
-      },
-      dateOfExpiry: {
-        key: 'dateOfExpiry',
-        label: 'Date of Expiry',
-        value: '22/08/2032',
-        confidence: 98,
-        editable: true,
-      },
-      placeOfIssue: {
-        key: 'placeOfIssue',
-        label: 'Place of Issue',
-        value: 'Delhi',
-        confidence: 98,
-        editable: true,
-      },
-      address: {
-        key: 'address',
-        label: 'Address',
-        value: 'Pocket B, Mayur Vihar Phase 1, New Delhi - 110091',
-        confidence: 95,
-        editable: true,
-      },
-      mrzCode: {
-        key: 'mrzCode',
-        label: 'MRZZ Code',
-        value: 'P<INDSHARMA<<RAHUL<<<<<<<<<<<<<<<<<<<<<<<<<<\\nA1234567<8IND0303140M3208229<<<<<<<<<<<<<<<2',
-        confidence: 99,
-        editable: true,
-      },
+    return {
+      passportNumber: empty('passportNumber', 'Passport Number'),
+      name: empty('name', 'Name'),
+      dateOfBirth: empty('dateOfBirth', 'DOB'),
+      dateOfIssue: empty('dateOfIssue', 'Date of Issue'),
+      dateOfExpiry: empty('dateOfExpiry', 'Date of Expiry'),
+      placeOfIssue: empty('placeOfIssue', 'Place of Issue'),
+      address: empty('address', 'Address'),
+      mrzCode: empty('mrzCode', 'MRZ Code'),
     };
   } else if (docType === 'driving_license') {
-    baseFields = {
-      licenseNumber: {
-        key: 'licenseNumber',
-        label: 'License Number',
-        value: 'DL-0420110012345',
-        confidence: 99,
-        editable: true,
-      },
-      name: {
-        key: 'name',
-        label: 'Name',
-        value: 'Rahul Sharma',
-        confidence: 99,
-        editable: true,
-      },
-      dateOfIssue: {
-        key: 'dateOfIssue',
-        label: 'Date of Issue',
-        value: '14/03/2023',
-        confidence: 98,
-        editable: true,
-      },
-      dateOfExpiry: {
-        key: 'dateOfExpiry',
-        label: 'Date of Expiry',
-        value: '13/03/2043',
-        confidence: 98,
-        editable: true,
-      },
-      placeOfIssue: {
-        key: 'placeOfIssue',
-        label: 'Place of Issue',
-        value: 'Delhi RTO',
-        confidence: 95,
-        editable: true,
-      },
-      address: {
-        key: 'address',
-        label: 'Address',
-        value: 'H.No 42, Pocket B, Mayur Vihar Phase 1, New Delhi - 110091',
-        confidence: 97,
-        editable: true,
-      },
+    return {
+      licenseNumber: empty('licenseNumber', 'License Number'),
+      name: empty('name', 'Name'),
+      dateOfIssue: empty('dateOfIssue', 'Date of Issue'),
+      dateOfExpiry: empty('dateOfExpiry', 'Date of Expiry'),
+      placeOfIssue: empty('placeOfIssue', 'Place of Issue'),
+      address: empty('address', 'Address'),
     };
   } else if (docType === 'visa') {
-    baseFields = {
-      visaNumber: {
-        key: 'visaNumber',
-        label: 'Visa Number',
-        value: 'V98765432',
-        confidence: 99,
-        editable: true,
-      },
-      visaType: {
-        key: 'visaType',
-        label: 'Visa Type',
-        value: 'Tourist / Business (B1/B2)',
-        confidence: 97,
-        editable: true,
-      },
-      expiryDate: {
-        key: 'expiryDate',
-        label: 'Expiry Date',
-        value: '15/12/2028',
-        confidence: 96,
-        editable: true,
-      },
-      passportNumber: {
-        key: 'passportNumber',
-        label: 'Passport Number',
-        value: 'A1234567',
-        confidence: 98,
-        editable: true,
-      },
+    return {
+      visaNumber: empty('visaNumber', 'Visa Number'),
+      visaType: empty('visaType', 'Visa Type'),
+      expiryDate: empty('expiryDate', 'Expiry Date'),
+      passportNumber: empty('passportNumber', 'Passport Number'),
     };
   } else if (docType === 'pan') {
-    baseFields = {
-      panNumber: {
-        key: 'panNumber',
-        label: 'PAN Number',
-        value: 'ABCPS1234F',
-        confidence: 99,
-        editable: true,
-      },
-      name: {
-        key: 'name',
-        label: 'Name',
-        value: 'Rahul Sharma',
-        confidence: 99,
-        editable: true,
-      },
-      fatherName: {
-        key: 'fatherName',
-        label: "Father's Name",
-        value: 'Suresh Sharma',
-        confidence: 97,
-        editable: true,
-      },
-      dateOfBirth: {
-        key: 'dateOfBirth',
-        label: 'Date of Birth',
-        value: '14/03/2003',
-        confidence: 98,
-        editable: true,
-      },
+    return {
+      panNumber: empty('panNumber', 'PAN Number'),
+      name: empty('name', 'Name'),
+      fatherName: empty('fatherName', "Father's Name"),
+      dateOfBirth: empty('dateOfBirth', 'Date of Birth'),
     };
   } else if (docType === 'voter_id') {
-    baseFields = {
-      epicNumber: {
-        key: 'epicNumber',
-        label: 'EPIC / Voter ID Number',
-        value: 'ABC1234567',
-        confidence: 99,
-        editable: true,
-      },
-      name: {
-        key: 'name',
-        label: 'Name',
-        value: 'Rahul Sharma',
-        confidence: 99,
-        editable: true,
-      },
-      relationName: {
-        key: 'relationName',
-        label: "Father / Husband's Name",
-        value: 'Suresh Sharma',
-        confidence: 97,
-        editable: true,
-      },
-      gender: {
-        key: 'gender',
-        label: 'Gender',
-        value: 'Male',
-        confidence: 98,
-        editable: true,
-      },
-      dateOfBirth: {
-        key: 'dateOfBirth',
-        label: 'Date of Birth',
-        value: '14/03/2003',
-        confidence: 96,
-        editable: true,
-      },
-      address: {
-        key: 'address',
-        label: 'Address',
-        value: 'Pocket B, Mayur Vihar Phase 1, New Delhi - 110091',
-        confidence: 95,
-        editable: true,
-      },
-    };
-  } else if (isSuspicious) {
-    baseFields = {
-      name: {
-        key: 'name',
-        label: 'Name',
-        value: 'Rahul Sharma',
-        confidence: 94,
-        editable: true,
-      },
-      aadharNo: {
-        key: 'aadharNo',
-        label: 'Aadhaar No',
-        value: 'XXXX XXXX 7821',
-        confidence: 92,
-        editable: true,
-      },
-      address: {
-        key: 'address',
-        label: 'Address',
-        value: 'Pocket B, Mayur Vihar Phase 1, New Delhi - 110091',
-        confidence: 88,
-        editable: true,
-      },
+    return {
+      epicNumber: empty('epicNumber', 'EPIC / Voter ID Number'),
+      name: empty('name', 'Name'),
+      relationName: empty('relationName', "Father / Husband's Name"),
+      gender: empty('gender', 'Gender'),
+      dateOfBirth: empty('dateOfBirth', 'Date of Birth'),
+      address: empty('address', 'Address'),
     };
   } else {
-    // docType === 'aadhaar'
-    baseFields = {
-      name: {
-        key: 'name',
-        label: 'Name',
-        value: 'Rahul Sharma',
-        confidence: 99,
-        editable: true,
-      },
-      aadharNo: {
-        key: 'aadharNo',
-        label: 'Aadhaar No',
-        value: 'XXXX XXXX 7821',
-        confidence: 99,
-        editable: true,
-      },
-      address: {
-        key: 'address',
-        label: 'Address',
-        value: 'House No. 42, Pocket B, Mayur Vihar Phase 1, New Delhi - 110091',
-        confidence: 98,
-        editable: true,
-      },
+    // aadhaar and other types
+    return {
+      name: empty('name', 'Name'),
+      aadharNo: empty('aadharNo', 'Aadhaar No'),
+      address: empty('address', 'Address'),
     };
   }
-
-  // Merge real recognized client OCR fields on top of base fields
-  return { ...baseFields, ...clientOcrFields };
 }
 
 /**

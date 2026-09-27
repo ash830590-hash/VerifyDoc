@@ -20,7 +20,9 @@ class PassportExtractor(BaseExtractor):
             fields["passport_number"] = mrz_data.get("passport_number")
             fields["surname"] = mrz_data.get("surname")
             fields["given_name"] = mrz_data.get("given_name")
-            fields["name"] = f"{fields.get('surname', '')} {fields.get('given_name', '')}".strip()
+            given = fields.get('given_name', '') or ''
+            sur = fields.get('surname', '') or ''
+            fields["name"] = f"{given} {sur}".strip() if given and sur else (given or sur)
             fields["nationality"] = mrz_data.get("nationality")
             fields["issuing_country"] = mrz_data.get("issuing_country") or "IND"
             fields["dob"] = mrz_data.get("dob")
@@ -58,8 +60,10 @@ class PassportExtractor(BaseExtractor):
         # Full Name (Supports single-name passports and combined names)
         s = fields.get("surname", "") or ""
         g = fields.get("given_name", "") or ""
-        if s or g:
-            fields["name"] = f"{s} {g}".strip()
+        if g and s:
+            fields["name"] = f"{g} {s}".strip()
+        elif g or s:
+            fields["name"] = (g or s).strip()
         elif not fields.get("name"):
             n_match = re.search(r'(?:Name|Holder)[\s.:\n]+([A-Za-z\s\.\'-]{2,35})', raw_text, re.IGNORECASE)
             fields["name"] = n_match.group(1).strip().split('\n')[0].strip() if n_match else None
