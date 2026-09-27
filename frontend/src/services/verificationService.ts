@@ -79,53 +79,74 @@ function parseOcrText(rawText: string, docType: DocumentType): Record<string, Ex
   const lines = rawText
     .split('\n')
     .map((l) => l.trim())
-    .filter((l) => l.length > 2);
+    .filter((l) => l.length > 0);
 
   const fields: Record<string, ExtractedField> = {};
   const upper = rawText.toUpperCase();
 
-  // 1. Look for DOB
-  const dobMatch = rawText.match(/\b(\d{2}[\/\-.]\d{2}[\/\-.]\d{4})\b/) ||
-                   rawText.match(/(?:DOB|D\.O\.B|Birth|Year)[\s:]*([0-9]{2}[\/\-][0-9]{2}[\/\-][0-9]{4}|[0-9]{4})/i);
+  // 1. Look for DOB (DD/MM/YYYY or DD-MM-YYYY)
+  const dobMatch = rawText.match(/\b(0[1-9]|[12]\d|3[01])[\/\-.](0[1-9]|1[0-2])[\/\-.](19\d{2}|20[0-2]\d)\b/) ||
+                   rawText.match(/(?:DOB|D\.O\.B|Birth|Year|जन्म|तारीख)[\s:]*([0-9]{2}[\/\-.][0-9]{2}[\/\-.][0-9]{4}|[0-9]{4})/i);
   if (dobMatch) {
+    const val = (dobMatch[1] && dobMatch[1].length >= 8) ? dobMatch[1] : dobMatch[0];
     fields.dateOfBirth = {
       key: 'dateOfBirth',
       label: 'Date of Birth',
-      value: dobMatch[1],
+      value: val.replace(/[-.]/g, '/').replace(/\s/g, ''),
       confidence: 96,
       editable: true,
     };
   }
 
   // 2. Look for Gender
-  if (/\b(FEMALE|WOMAN)\b/i.test(upper)) {
+  if (/\b(FEMALE|WOMAN|महिला|स्त्री)\b/i.test(upper)) {
     fields.gender = { key: 'gender', label: 'Gender', value: 'Female', confidence: 97, editable: true };
-  } else if (/\b(MALE|MAN)\b/i.test(upper)) {
+  } else if (/\b(MALE|MAN|पुरुष)\b/i.test(upper)) {
     fields.gender = { key: 'gender', label: 'Gender', value: 'Male', confidence: 97, editable: true };
+  } else if (/\b(TRANSGENDER|तृतीय\s*लिंग)\b/i.test(upper)) {
+    fields.gender = { key: 'gender', label: 'Gender', value: 'Transgender', confidence: 97, editable: true };
   }
 
   // 3. Document-specific identifiers
   if (docType === 'aadhaar') {
-    const aadhaarMatch = rawText.match(/\b(\d{4}[-\s]?\d{4}[-\s]?\d{4})\b/) ||
-                         rawText.match(/\b([X\d]{4}[-\s]?[X\d]{4}[-\s]?\d{4})\b/i);
-    if (aadhaarMatch) {
-      const cleanUid = aadhaarMatch[1].replace(/[-\s]/g, '');
-      const formattedUid = cleanUid.length === 12
-        ? `${cleanUid.slice(0, 4)} ${cleanUid.slice(4, 8)} ${cleanUid.slice(8, 12)}`
-        : aadhaarMatch[1];
-
+    // Matches 12-digit Aadhaar in 4-4-4 format, dashed, continuous, or masked
+    const uidMatch = rawText.match(/\b(\d{4}[\s-]+\d{4}[\s-]+\d{4})\b/) ||
+                     rawText.match(/\b([X\d]{4}[\s-]+[X\d]{4}[\s-]+\d{4})\b/i) ||
+                     rawText.match(/\b(\d{12})\b/);
+    if (uidMatch) {
+      const rawDigits = uidMatch[1].replace(/[-\s]/g, '');
+      const formatted = rawDigits.length === 12
+        ? `${rawDigits.slice(0, 4)} ${rawDigits.slice(4, 8)} ${rawDigits.slice(8, 12)}`
+        : uidMatch[1];
       fields.aadharNo = {
         key: 'aadharNo',
         label: 'Aadhaar No',
-        value: formattedUid,
+        value: formatted,
         confidence: 98,
         editable: true,
       };
       fields.maskedAadhaar = {
         key: 'maskedAadhaar',
         label: 'Masked Aadhaar Number',
-        value: formattedUid,
+        value: formatted,
         confidence: 98,
+        editable: true,
+      };
+    }
+
+    // Address extraction for Aadhaar (if back side or letter scanned)
+    const addrMatch = rawText.match(/(?:Address|पता|S\/O|C\/O|W\/O|D\/O)[\s.:\n]+([\s\S]{10,120}?)(?=\b\d{6}\b|$)/i);
+    if (addrMatch) {
+      const pinMatch = rawText.match(/\b\d{6}\b/);
+      let addr = addrMatch[1].replace(/\n+/g, ', ').replace(/\s+/g, ' ').trim();
+      if (pinMatch && !addr.includes(pinMatch[0])) {
+        addr += ` - ${pinMatch[0]}`;
+      }
+      fields.address = {
+        key: 'address',
+        label: 'Address',
+        value: addr,
+        confidence: 95,
         editable: true,
       };
     }
@@ -151,30 +172,6 @@ function parseOcrText(rawText: string, docType: DocumentType): Record<string, Ex
         editable: true,
       };
     }
-  } else if (docType === 'voter_id') {
-    const epicMatch = rawText.match(/\b([A-Z]{3}[0-9]{7})\b/i);
-    if (epicMatch) {
-      fields.epicNumber = {
-        key: 'epicNumber',
-        label: 'EPIC / Voter ID Number',
-        value: epicMatch[1].toUpperCase(),
-        confidence: 98,
-        editable: true,
-      };
-    }
-    const relMatch = rawText.match(/(?:Father[^\w\n]{0,4}\s*Name|Husband[^\w\n]{0,4}\s*Name|Mother[^\w\n]{0,4}\s*Name|Relation|पिता|पति|माता)[\s.:\n]+([A-Za-z\s\.\'-]{3,40})/i);
-    if (relMatch) {
-      const cleanRel = relMatch[1].trim().split('\n')[0].replace(/(?:Gender|Sex|लिंग|Age|आयु|DOB|Date).*$/i, '').trim();
-      if (cleanRel.length >= 3 && !/ELECTION|COMMISSION|BHARAT|INDIA/i.test(cleanRel)) {
-        fields.relationName = {
-          key: 'relationName',
-          label: "Father / Husband's Name",
-          value: cleanRel,
-          confidence: 97,
-          editable: true,
-        };
-      }
-    }
   } else if (docType === 'pan') {
     const panMatch = rawText.match(/\b([A-Z]{5}[0-9]{4}[A-Z])\b/);
     if (panMatch) {
@@ -199,6 +196,30 @@ function parseOcrText(rawText: string, docType: DocumentType): Record<string, Ex
         };
       }
     }
+  } else if (docType === 'voter_id') {
+    const epicMatch = rawText.match(/\b([A-Z]{3}[0-9]{7})\b/i);
+    if (epicMatch) {
+      fields.epicNumber = {
+        key: 'epicNumber',
+        label: 'EPIC / Voter ID Number',
+        value: epicMatch[1].toUpperCase(),
+        confidence: 98,
+        editable: true,
+      };
+    }
+    const relMatch = rawText.match(/(?:Father[^\w\n]{0,4}\s*Name|Husband[^\w\n]{0,4}\s*Name|Mother[^\w\n]{0,4}\s*Name|Relation|पिता|पति|माता)[\s.:\n]+([A-Za-z\s\.\'-]{3,40})/i);
+    if (relMatch) {
+      const cleanRel = relMatch[1].trim().split('\n')[0].replace(/(?:Gender|Sex|लिंग|Age|आयु|DOB|Date).*$/i, '').trim();
+      if (cleanRel.length >= 3 && !/ELECTION|COMMISSION|BHARAT|INDIA/i.test(cleanRel)) {
+        fields.relationName = {
+          key: 'relationName',
+          label: "Father / Husband's Name",
+          value: cleanRel,
+          confidence: 97,
+          editable: true,
+        };
+      }
+    }
   } else if (docType === 'visa') {
     const visaMatch = rawText.match(/\b(V[0-9]{7,9})\b/i);
     if (visaMatch) {
@@ -212,12 +233,21 @@ function parseOcrText(rawText: string, docType: DocumentType): Record<string, Ex
     }
   }
 
-  // 4. Look for Name:
-  // (a) Check explicit 'Name:' label
+  // 4. Look for Name
+  const forbiddenKeywords = [
+    'GOVERNMENT', 'INDIA', 'BHARAT', 'SARKAR', 'UIDAI', 'AADHAAR', 'AUTHORITY',
+    'UNIQUE', 'ENROLMENT', 'MERA', 'PEHCHAN', 'HELP', 'MALE', 'FEMALE', 'DOB',
+    'BIRTH', 'YEAR', 'DATE', 'ADDRESS', 'PROOF', 'IDENTITY', 'CITIZENSHIP',
+    'VERIFICATION', 'CARD', 'NIRVACHAN', 'COMMISSION', 'ELECTION', 'TAX',
+    'INCOME', 'PERMANENT', 'ACCOUNT', 'DEPARTMENT', 'REPUBLIC', 'UNION'
+  ];
+
+  // (a) Check explicit 'Name:' label first
   const explicitNameMatch = rawText.match(/(?:Elector[^\w\n]{0,4}\s*Name|Name|Holder Name|निर्वाचक\s*का\s*नाम|नाम)[\s.:\n]+([A-Za-z\s\.\'-]{3,40})/i);
   if (explicitNameMatch) {
     const cand = explicitNameMatch[1].trim().split('\n')[0].replace(/(?:Father|Husband|Mother|Relation|पिता|पति|Gender|Sex|लिंग|Age|आयु|DOB|Date).*$/i, '').trim();
-    if (cand.length >= 3 && !/ELECTION|COMMISSION|BHARAT|INDIA|GOVERNMENT|IDENTITY|PHOTO|CARD|UNIQUE|AUTHORITY|TAX|DEPARTMENT/i.test(cand)) {
+    const up = cand.toUpperCase();
+    if (cand.length >= 3 && !forbiddenKeywords.some((k) => up.includes(k))) {
       fields.name = {
         key: 'name',
         label: docType === 'driving_license' ? 'Holder Name' : 'Name',
@@ -228,24 +258,14 @@ function parseOcrText(rawText: string, docType: DocumentType): Record<string, Ex
     }
   }
 
-  // (b) For ID cards (e.g. Aadhaar) without 'Name:' label: Use Anchor Analysis (lines preceding DOB or Gender)
+  // (b) Anchor-based Name Analysis (For documents like Aadhaar without explicit 'Name:' prefix)
   if (!fields.name) {
-    const forbiddenKeywords = [
-      'INDIA', 'AUTHORITY', 'GOVERNMENT', 'BHARAT', 'SARKAR', 'UIDAI',
-      'MALE', 'FEMALE', 'TRANSGENDER', 'AADHAAR', 'DOB', 'DATE', 'BIRTH',
-      'HELP', 'ISSUE', 'ADDRESS', 'MERA', 'ENROLMENT', 'DETAILS', 'PROOF',
-      'IDENTITY', 'CITIZENSHIP', 'VERIFICATION', 'AUTHENTICATION', 'SCANNING',
-      'PURPOSE', 'CARD', 'NUMBER', 'VID', 'SIGNATURE', 'UNIQUE', 'IDENTIFICATION',
-      'COMMISSION', 'ELECTION', 'NIRVACHAN', 'PHOTO', 'UNION', 'REPUBLIC'
-    ];
-
     let anchorIdx = -1;
     for (let i = 0; i < lines.length; i++) {
-      const lineUp = lines[i].toUpperCase();
+      const up = lines[i].toUpperCase();
       if (
-        /DOB|D\.O\.B|BIRTH|YEAR|YOB|जन्म|तारीख/i.test(lineUp) ||
-        /\b\d{2}[\/\-.]\d{2}[\/\-.]\d{4}\b/.test(lines[i]) ||
-        /\b(MALE|FEMALE|TRANSGENDER|पुरुष|महिला)\b/i.test(lineUp)
+        /DOB|D\.O\.B|BIRTH|YEAR|जन्म|\b\d{2}[\/\-.]\d{2}[\/\-.]\d{4}\b/i.test(up) ||
+        /\b(MALE|FEMALE|TRANSGENDER|पुरुष|महिला)\b/i.test(up)
       ) {
         anchorIdx = i;
         break;
@@ -254,17 +274,21 @@ function parseOcrText(rawText: string, docType: DocumentType): Record<string, Ex
 
     if (anchorIdx > 0) {
       for (let offset = 1; offset <= Math.min(4, anchorIdx); offset++) {
-        const candLine = lines[anchorIdx - offset]
+        const candLine = lines[anchorIdx - offset];
+        const clean = candLine
           .replace(/^(?:Name|To|Holder|S\/O|D\/O|W\/O|C\/O)[\s.:]+/i, '')
-          .replace(/[^A-Za-z\s\.\'-]/g, ' ')
+          .replace(/[^A-Za-z\s]/g, ' ')
           .replace(/\s+/g, ' ')
           .trim();
 
-        if (candLine.length >= 3 && candLine.length <= 40) {
-          const upCand = candLine.toUpperCase();
-          const hasForbidden = forbiddenKeywords.some((k) => upCand.includes(k));
-          const words = candLine.split(' ').filter((w) => w.length >= 2);
-          if (!hasForbidden && words.length >= 1 && words.length <= 5) {
+        const upCand = clean.toUpperCase();
+        if (clean.length >= 3 && clean.length <= 40 && !forbiddenKeywords.some((k) => upCand.includes(k))) {
+          let words = clean.split(' ').filter((w) => w.length >= 2);
+          // Strip 1-2 char noise prefixes (like EH, ET, SE) produced by English Tesseract reading Hindi
+          while (words.length > 1 && words[0].length <= 2 && words[0] === words[0].toUpperCase()) {
+            words.shift();
+          }
+          if (words.length >= 1 && words.length <= 5 && words.some((w) => w.length >= 3)) {
             fields.name = {
               key: 'name',
               label: docType === 'driving_license' ? 'Holder Name' : 'Name',
@@ -282,18 +306,23 @@ function parseOcrText(rawText: string, docType: DocumentType): Record<string, Ex
   // (c) General Fallback
   if (!fields.name) {
     const candidateNames = lines.filter((l) => {
-      const isHeader = /GOVERNMENT|INDIA|UNION|REPUBLIC|PASSPORT|DRIVING|LICENCE|ELECTION|COMMISSION|AADHAAR|UNIQUE|AUTHORITY|INCOME|TAX|PERMANENT|ACCOUNT|ELECTOR|IDENTITY|PHOTO|CARD|BHARAT|NIRVACHAN|ET\s*:\s*SE|MERA|PEHCHAN/i.test(l);
       const clean = l.replace(/[^A-Za-z\s]/g, '').replace(/\s+/g, ' ').trim();
+      const up = clean.toUpperCase();
+      const hasForbidden = forbiddenKeywords.some((k) => up.includes(k));
       const words = clean.split(' ').filter((w) => w.length >= 2);
-      return !isHeader && clean.length >= 3 && clean.length <= 40 && !/\d/.test(l) && words.length >= 1 && words.length <= 4;
+      return !hasForbidden && clean.length >= 3 && clean.length <= 40 && !/\d/.test(l) && words.length >= 1 && words.length <= 4 && words.some((w) => w.length >= 3);
     });
 
     if (candidateNames.length > 0) {
+      let words = candidateNames[0].replace(/[^A-Za-z\s]/g, '').trim().split(' ').filter((w) => w.length >= 2);
+      while (words.length > 1 && words[0].length <= 2 && words[0] === words[0].toUpperCase()) {
+        words.shift();
+      }
       fields.name = {
         key: 'name',
         label: docType === 'driving_license' ? 'Holder Name' : 'Name',
-        value: candidateNames[0].replace(/[^A-Za-z\s]/g, '').trim(),
-        confidence: 90,
+        value: words.join(' '),
+        confidence: 95,
         editable: true,
       };
     }
@@ -462,6 +491,8 @@ function getEmptyFieldsForDocType(docType: DocumentType): Record<string, Extract
     return {
       name: empty('name', 'Name'),
       aadharNo: empty('aadharNo', 'Aadhaar No'),
+      gender: empty('gender', 'Gender'),
+      dateOfBirth: empty('dateOfBirth', 'Date of Birth'),
       address: empty('address', 'Address'),
     };
   }
